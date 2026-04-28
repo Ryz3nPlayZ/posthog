@@ -371,8 +371,7 @@
                 "research",
                 "flags",
                 "llm_analytics",
-                "sandbox",
-                "user_interview"
+                "sandbox"
             ],
             "type": "string"
         },
@@ -422,7 +421,7 @@
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {
@@ -3513,7 +3512,6 @@
                 "search_session_recordings",
                 "fix_hogql_query",
                 "analyze_user_interviews",
-                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -10494,13 +10492,6 @@
                 },
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
-                },
-                "resultCustomizations": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/ResultCustomizationByValue"
-                    },
-                    "description": "Per-breakdown-value color customizations. Keyed by the raw breakdown column value.",
-                    "type": "object"
                 },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
@@ -18731,8 +18722,7 @@
                 "Convex",
                 "ClickHouse",
                 "Plain",
-                "Resend",
-                "PgAnalyze"
+                "Resend"
             ],
             "type": "string"
         },
@@ -27170,80 +27160,6 @@
                 }
             },
             "required": ["kind"],
-            "type": "object"
-        },
-        "PgAnalyzeIssueReference": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "type": ["string", "null"]
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "queryText": {
-                    "type": ["string", "null"]
-                },
-                "url": {
-                    "type": ["string", "null"]
-                }
-            },
-            "required": ["kind", "name", "url", "queryText"],
-            "type": "object"
-        },
-        "PgAnalyzeIssueSignalExtra": {
-            "additionalProperties": false,
-            "properties": {
-                "database_id": {
-                    "type": ["string", "null"]
-                },
-                "references": {
-                    "items": {
-                        "$ref": "#/definitions/PgAnalyzeIssueReference"
-                    },
-                    "type": "array"
-                },
-                "server_human_id": {
-                    "type": ["string", "null"]
-                },
-                "server_name": {
-                    "type": ["string", "null"]
-                },
-                "severity": {
-                    "type": ["string", "null"]
-                },
-                "synced_at": {
-                    "type": "string"
-                }
-            },
-            "required": ["severity", "references", "database_id", "server_human_id", "server_name", "synced_at"],
-            "type": "object"
-        },
-        "PgAnalyzeIssueSignalInput": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "extra": {
-                    "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
-                },
-                "source_id": {
-                    "type": "string"
-                },
-                "source_product": {
-                    "const": "pganalyze",
-                    "type": "string"
-                },
-                "source_type": {
-                    "const": "issue",
-                    "type": "string"
-                },
-                "weight": {
-                    "type": "number"
-                }
-            },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "PinterestAdsDefaultSources": {
@@ -36004,7 +35920,7 @@
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 },
                 {
-                    "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
+                    "$ref": "#/definitions/SignalsAgentSignalInput"
                 }
             ]
         },
@@ -36040,7 +35956,7 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "pganalyze"
+                "signals_agent"
             ],
             "type": "string"
         },
@@ -36055,9 +35971,117 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "cross_source_issue"
             ],
             "type": "string"
+        },
+        "SignalsAgentEvidenceEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "entity_id": {
+                    "description": "Optional entity id within that product, e.g. an issue id or session id.",
+                    "type": "string"
+                },
+                "source_product": {
+                    "description": "The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary of the evidence the agent used.",
+                    "type": "string"
+                }
+            },
+            "required": ["source_product", "summary"],
+            "type": "object"
+        },
+        "SignalsAgentSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "agent_run_id": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "description": "Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "type": "number"
+                },
+                "dedupe_keys": {
+                    "description": "Free-form short keys the harness can use for cross-run dedupe.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "evidence": {
+                    "items": {
+                        "$ref": "#/definitions/SignalsAgentEvidenceEntry"
+                    },
+                    "type": "array"
+                },
+                "finding_id": {
+                    "type": "string"
+                },
+                "hypothesis": {
+                    "type": "string"
+                },
+                "mcp_trace_id": {
+                    "description": "Trace id from the LLM analytics span for the agent run, when available.",
+                    "type": "string"
+                },
+                "severity": {
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "skill_version": {
+                    "type": "number"
+                },
+                "time_range": {
+                    "additionalProperties": false,
+                    "description": "Optional time window the finding refers to.",
+                    "properties": {
+                        "date_from": {
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                }
+            },
+            "required": ["agent_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "type": "object"
+        },
+        "SignalsAgentSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalsAgentSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "signals_agent",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "cross_source_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SimilarIssue": {
             "additionalProperties": false,

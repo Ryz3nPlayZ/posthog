@@ -50,7 +50,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -64,7 +63,6 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
-    EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -689,7 +687,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -2166,7 +2163,6 @@ class ExternalDataSourceType(StrEnum):
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
     RESEND = "Resend"
-    PG_ANALYZE = "PgAnalyze"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3715,40 +3711,6 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
-class PgAnalyzeIssueReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: str | None = None
-    name: str | None = None
-    queryText: str | None = None
-    url: str | None = None
-
-
-class PgAnalyzeIssueSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    database_id: str | None = None
-    references: list[PgAnalyzeIssueReference]
-    server_human_id: str | None = None
-    server_name: str | None = None
-    severity: str | None = None
-    synced_at: str
-
-
-class PgAnalyzeIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: PgAnalyzeIssueSignalExtra
-    source_id: str
-    source_product: Literal["pganalyze"] = "pganalyze"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
@@ -4565,7 +4527,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
-    PGANALYZE = "pganalyze"
+    SIGNALS_AGENT = "signals_agent"
 
 
 class SignalSourceType(StrEnum):
@@ -4579,6 +4541,76 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    CROSS_SOURCE_ISSUE = "cross_source_issue"
+
+
+class SignalsAgentEvidenceEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entity_id: str | None = Field(
+        default=None,
+        description=("Optional entity id within that product, e.g. an issue id or session id."),
+    )
+    source_product: str = Field(
+        ...,
+        description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
+    )
+    summary: str = Field(..., description="One-line summary of the evidence the agent used.")
+
+
+class Severity(StrEnum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class TimeRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str
+    date_to: str
+
+
+class SignalsAgentSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    agent_run_id: str
+    confidence: float = Field(
+        ...,
+        description=("Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+    )
+    dedupe_keys: list[str] | None = Field(
+        default=None,
+        description="Free-form short keys the harness can use for cross-run dedupe.",
+    )
+    evidence: list[SignalsAgentEvidenceEntry]
+    finding_id: str
+    hypothesis: str | None = None
+    mcp_trace_id: str | None = Field(
+        default=None,
+        description=("Trace id from the LLM analytics span for the agent run, when available."),
+    )
+    severity: Severity | None = None
+    skill_name: str
+    skill_version: float
+    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
+
+
+class SignalsAgentSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalsAgentSignalExtra
+    source_id: str
+    source_product: Literal["signals_agent"] = "signals_agent"
+    source_type: Literal["cross_source_issue"] = "cross_source_issue"
+    weight: float
 
 
 class SimilarIssue(BaseModel):
@@ -8464,7 +8496,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-        | PgAnalyzeIssueSignalInput
+        | SignalsAgentSignalInput
     ]
 ):
     root: (
@@ -8477,7 +8509,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-        | PgAnalyzeIssueSignalInput
+        | SignalsAgentSignalInput
     )
 
 
@@ -12881,10 +12913,6 @@ class ChartSettings(BaseModel):
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
-    resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
-        default=None,
-        description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
-    )
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
