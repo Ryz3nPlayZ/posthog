@@ -1,10 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "feature_flag_key": {
-            "type": "string"
+        "id": {
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
         }
     },
-    "required": ["feature_flag_key"],
+    "required": ["id"],
     "type": "object"
 }

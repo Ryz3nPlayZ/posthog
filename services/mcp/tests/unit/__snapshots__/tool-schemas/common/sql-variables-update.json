@@ -7,18 +7,20 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Default value used when a query references this variable."
         },
         "id": {
             "description": "A UUID string identifying this insight variable.",
             "type": "string"
         },
         "name": {
+            "description": "Human-readable name for the SQL variable.",
             "maxLength": 400,
             "type": "string"
         },
         "type": {
-            "description": "* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "description": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
             "enum": ["String", "Number", "Boolean", "List", "Date"],
             "type": "string"
         },
@@ -28,7 +30,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Allowed values for List variables. Null for other variable types."
         }
     },
     "required": ["id"],

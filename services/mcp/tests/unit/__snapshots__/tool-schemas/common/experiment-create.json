@@ -212,11 +212,28 @@
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
-                                                "type": "number"
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "split_percent": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
-                                        "required": ["key", "rollout_percentage"],
+                                        "required": ["key"],
                                         "type": "object"
                                     },
                                     "type": "array"
@@ -237,6 +254,17 @@
                                 }
                             ],
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
+                        },
+                        "rollout_percentage": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         }
                     },
                     "type": "object"
