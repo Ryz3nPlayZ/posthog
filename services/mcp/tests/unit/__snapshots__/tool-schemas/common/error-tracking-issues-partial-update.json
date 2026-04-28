@@ -35,7 +35,6 @@
         "external_issues": {
             "items": {
                 "properties": {
-                    "config": {},
                     "external_url": {
                         "type": "string"
                     },
@@ -51,19 +50,47 @@
                                 "type": "number"
                             },
                             "kind": {
+                                "enum": [
+                                    "slack",
+                                    "slack-posthog-code",
+                                    "salesforce",
+                                    "hubspot",
+                                    "google-pubsub",
+                                    "google-cloud-service-account",
+                                    "google-cloud-storage",
+                                    "google-ads",
+                                    "google-sheets",
+                                    "linkedin-ads",
+                                    "snapchat",
+                                    "intercom",
+                                    "email",
+                                    "twilio",
+                                    "linear",
+                                    "github",
+                                    "gitlab",
+                                    "meta-ads",
+                                    "clickup",
+                                    "reddit-ads",
+                                    "databricks",
+                                    "tiktok-ads",
+                                    "bing-ads",
+                                    "vercel",
+                                    "azure-blob",
+                                    "firebase",
+                                    "jira",
+                                    "pinterest-ads",
+                                    "customerio-app",
+                                    "customerio-webhook",
+                                    "customerio-track"
+                                ],
                                 "type": "string"
                             }
                         },
+                        "required": ["display_name", "id", "kind"],
                         "type": "object"
-                    },
-                    "integration_id": {
-                        "type": "number"
-                    },
-                    "issue": {
-                        "type": "string"
                     }
                 },
-                "required": ["integration_id", "config", "issue"],
+                "required": ["external_url", "id", "integration"],
                 "type": "object"
             },
             "type": "array"

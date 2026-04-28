@@ -1,36 +1,15 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "assignee": {
+        "disabled_data": {
             "anyOf": [
-                {
-                    "properties": {
-                        "id": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ],
-                            "description": "User ID when `type` is `user`, or role UUID when `type` is `role`."
-                        },
-                        "type": {
-                            "description": "Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role",
-                            "enum": ["user", "role"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type", "id"],
-                    "type": "object"
-                },
+                {},
                 {
                     "type": "null"
                 }
-            ],
-            "description": "Optional user or role to assign to issues created by this grouping rule."
+            ]
         },
+<<<<<<< HEAD
         "description": {
             "anyOf": [
                 {
@@ -1858,8 +1837,15 @@
             },
             "required": ["type", "values"],
             "type": "object"
+=======
+        "filters": {},
+        "order_key": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+>>>>>>> 6492e986898 (test(mcp): update unit test snapshots)
         }
     },
-    "required": ["filters"],
+    "required": ["filters", "order_key"],
     "type": "object"
 }

@@ -1,35 +1,76 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "allows_na": {
-            "default": false,
-            "description": "Whether the evaluation can return N/A for non-applicable generations.",
+        "conditions": {},
+        "deleted": {
             "type": "boolean"
         },
-        "conditions": {
-            "description": "Optional trigger conditions to filter which events are sampled.",
-            "items": {
-                "additionalProperties": {},
-                "propertyNames": {
-                    "type": "string"
+        "description": {
+            "type": "string"
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "evaluation_config": {},
+        "evaluation_type": {
+            "description": "* `llm_judge` - LLM as a judge\n* `hog` - Hog",
+            "enum": ["llm_judge", "hog"],
+            "type": "string"
+        },
+        "model_configuration": {
+            "anyOf": [
+                {
+                    "description": "Nested serializer for model configuration.",
+                    "properties": {
+                        "model": {
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        "provider": {
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks",
+                            "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
+                            "type": "string"
+                        },
+                        "provider_key_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "provider_key_name": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["provider", "model"],
+                    "type": "object"
                 },
-                "type": "object"
-            },
-            "type": "array"
+                {
+                    "type": "null"
+                }
+            ]
         },
-        "sample_count": {
-            "default": 5,
-            "description": "Number of recent $ai_generation events to test against (1–10, default 5).",
-            "maximum": 10,
-            "minimum": 1,
-            "type": "number"
+        "name": {
+            "maxLength": 400,
+            "type": "string"
         },
-        "source": {
-            "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
-            "minLength": 1,
+        "output_config": {},
+        "output_type": {
+            "description": "* `boolean` - Boolean (Pass/Fail)",
+            "enum": ["boolean"],
             "type": "string"
         }
     },
-    "required": ["source"],
+    "required": ["name", "evaluation_type", "output_type"],
     "type": "object"
 }

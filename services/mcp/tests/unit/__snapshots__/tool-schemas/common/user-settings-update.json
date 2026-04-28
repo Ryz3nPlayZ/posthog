@@ -29,11 +29,9 @@
                 {
                     "type": "null"
                 }
-            ],
-            "description": "Whether PostHog should anonymize events captured for this user when identified."
+            ]
         },
         "current_password": {
-            "description": "The user's current password. Required when changing `password` if the user already has a usable password set.",
             "type": "string"
         },
         "email": {
@@ -59,7 +57,6 @@
         },
         "notification_settings": {
             "additionalProperties": {},
-            "description": "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.",
             "propertyNames": {
                 "type": "string"
             },
