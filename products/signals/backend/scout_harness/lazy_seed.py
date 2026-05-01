@@ -25,8 +25,8 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-# Bundled subdirs (references / scripts) are walked recursively when seeding.
-_ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+# Bundled subdirs (references / scripts / assets per agentskills.io spec) walked recursively.
+_ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts", "assets")
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/llm_analytics/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
 # bypasses the service layer (no "create from scratch with files" helper exists), so
@@ -54,7 +54,9 @@ class CanonicalSkill:
 
     `name` and `description` come from SKILL.md frontmatter. `body` is the markdown after the
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
-    `files` is the recursive content of `references/` and `scripts/` subdirs alongside SKILL.md.
+    The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
+    spec form. `files` is the recursive content of `references/`, `scripts/`, and `assets/`
+    subdirs alongside SKILL.md.
     """
 
     name: str
@@ -105,9 +107,16 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
             f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"
         )
 
-    raw_allowed = frontmatter.get("allowed_tools", []) or []
+    # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
+    # the underscore form too — it predated the spec alignment in this codebase and is used by
+    # other PHS skills. Reject if both keys are set so a future divergence doesn't go unnoticed.
+    if "allowed-tools" in frontmatter and "allowed_tools" in frontmatter:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter has both 'allowed-tools' and 'allowed_tools'; pick one: {skill_file}"
+        )
+    raw_allowed = frontmatter.get("allowed-tools") or frontmatter.get("allowed_tools") or []
     if not isinstance(raw_allowed, list) or not all(isinstance(t, str) for t in raw_allowed):
-        raise CanonicalSkillParseError(f"SKILL.md frontmatter 'allowed_tools' must be a list of strings: {skill_file}")
+        raise CanonicalSkillParseError(f"SKILL.md frontmatter 'allowed-tools' must be a list of strings: {skill_file}")
 
     body = raw[match.end() :]
     # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
