@@ -2305,21 +2305,6 @@
             "readOnlyHint": true
         }
     },
-    "feature-flags-my-flags-retrieve": {
-        "description": "List all feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON object to evaluate group-based flags.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get my evaluated feature flags",
-        "title": "Get my evaluated feature flags",
-        "required_scopes": ["feature_flag:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "feature-flags-status-retrieve": {
         "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
         "category": "Feature flags",
@@ -4612,8 +4597,68 @@
             "readOnlyHint": true
         }
     },
-    "signals-scout-emit-signal": {
-        "description": "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag.",
+    "signals-scout-scratchpad-create": {
+        "description": "Upsert an `agent_inference` memory entry keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL (default 7 days, max 90). Cannot overwrite `human_confirmed` entries — those are managed by humans only. Use this to record \"already saw it\" notes, dedupe keys, validated hypotheses, or narrow the scope of future runs.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Write or refresh an agent memory",
+        "title": "Write or refresh an agent memory",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-delete": {
+        "description": "Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is idempotent. Cannot delete `human_confirmed` entries.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Forget an agent memory by key",
+        "title": "Forget an agent memory by key",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-list": {
+        "description": "Return `SignalScratchpad` entries the project has accumulated — known issues, false positives, team steering. ILIKE matches on `content`; tags filter via Postgres array overlap (pass repeated `tags=` query params). Expired `agent_inference` entries are hidden by default; pass `include_expired=true` for audit/debug.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search durable agent memories",
+        "title": "Search durable agent memories",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-harness-project-profile-get": {
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-harness-memory-list`: profile is ground truth from authoritative tables; memory is the agent's inferred learnings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get the project profile",
+        "title": "Get the project profile",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-harness-runs-findings-create": {
+        "description": "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted on the run row but the external emit is a no-op. Use `weight` to rank, `confidence` to self-grade, and attach evidence citations referencing `error_tracking`, `session_replay`, `logs`, `feature_flags`, etc.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Emit a finding for a run",
@@ -4628,11 +4673,11 @@
         }
     },
     "signals-scout-runs-list": {
-        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `since` to scope to a recent window. Results capped at 100.",
+        "description": "Return recent `SignalScoutRun` summaries for the current project, newest first. Used by the headless Signals agent to dedupe its own work — read what other runs already covered before generating new hypotheses. ILIKE matches on `summary`; results are capped at 100 (default 20). Optional `since` window narrows to recent runs only.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List recent scout runs",
-        "title": "List recent scout runs",
+        "summary": "Search recent agent runs",
+        "title": "Search recent agent runs",
         "required_scopes": ["signal_scout:read"],
         "new_mcp": true,
         "annotations": {
@@ -4643,56 +4688,11 @@
         }
     },
     "signals-scout-runs-retrieve": {
-        "description": "Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "description": "Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another project returns 404. Follow up to a row surfaced by `signals-scout-runs-list` when you need the full payload.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Get a scout run by ID",
-        "title": "Get a scout run by ID",
-        "required_scopes": ["signal_scout:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "signals-scout-scratchpad-forget": {
-        "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Forget a scratchpad entry by key",
-        "title": "Forget a scratchpad entry by key",
-        "required_scopes": ["signal_scout_internal:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "signals-scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Remember a scratchpad entry",
-        "title": "Remember a scratchpad entry",
-        "required_scopes": ["signal_scout_internal:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "signals-scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Results capped at 100.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Search the scout scratchpad",
-        "title": "Search the scout scratchpad",
+        "summary": "Get an agent run by ID",
+        "title": "Get an agent run by ID",
         "required_scopes": ["signal_scout:read"],
         "new_mcp": true,
         "annotations": {
