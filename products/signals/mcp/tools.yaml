@@ -150,8 +150,27 @@ tools:
             and error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by
             `source_id = run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another
             team returns 404.
-    signals-scout-emit-signal:
-        operation: signals_scout_emit_signal
+    signals-scout-project-profile-get:
+        operation: signals_scout_project_profile_get
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the project profile
+        description: >
+            Return a deterministic snapshot of "what's true about this project" — products in use, product intents
+            (stuck onboardings), connected integrations, warehouse sources, signal source configs (split
+            enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
+            newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
+            `llma-skill-get`) to orient on the team in one tool call instead of paginating through
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
+            `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
+            scout's inferred learnings.
+    signals-scout-runs-findings-create:
+        operation: signals_scout_runs_findings_create
         enabled: true
         scopes:
             - signal_scout_internal:write
