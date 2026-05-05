@@ -147,6 +147,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'session_recording_playlist:write',
     'sharing_configuration:read',
     'sharing_configuration:write',
+    'signal_agent:read',
+    'signal_agent:write',
     'streamlit_app:read',
     'streamlit_app:write',
     'subscription:read',
