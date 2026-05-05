@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import json
+import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,11 +14,11 @@ import yaml
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
 
 logger = logging.getLogger(__name__)
 
-# Canonical signals-scout-* skills live on disk under `products/signals/skills/` so they're
+# Canonical signals-agent-* skills live on disk under `products/signals/skills/` so they're
 # usable both as in-repo packaged skills (consumed by `hogli build:skills` for the AI plugin
 # and shipped via the dist/skills.zip release) and seeded into each team's LLMSkill namespace
 # by the headless harness. Single source of truth, two distribution paths.
@@ -54,7 +56,7 @@ class CanonicalSkillFile:
 
 @dataclass(frozen=True)
 class CanonicalSkill:
-    """A canonical `signals-scout-*` skill discovered from `products/signals/skills/`.
+    """A canonical `signals-agent-*` skill discovered from `products/signals/skills/`.
 
     `name` and `description` come from SKILL.md frontmatter. `body` is the markdown after the
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
@@ -72,15 +74,39 @@ class CanonicalSkill:
 
 
 @dataclass(frozen=True)
-class SeedResult:
-    """Outcome of `seed_canonical_skills`.
+class SyncResult:
+    """Outcome of `sync_canonical_skills` for one team.
 
-    `created_skill_names` is empty when the team already had at least one signals-scout-*
-    skill (the seed is a no-op in that case — edits and forks on team copies are preserved).
+    Each tuple lists the canonical skill names that fell into a particular branch:
+
+    - `created_skill_names`: rows that didn't exist on the team and were created from canonical.
+    - `updated_skill_names`: live rows whose stored hash matched their content (so the team had
+      not edited them) but whose content differed from the latest canonical — overwritten with
+      the latest canonical, version bumped, hash refreshed.
+    - `diverged_skill_names`: live rows whose content hash no longer matches the stored
+      `canonical_hash` — the team edited their copy. Left untouched.
+    - `tombstoned_skill_names`: rows that exist only as soft-deleted tombstones — the team
+      removed this skill from their rotation. Left untouched (no resurrection).
+    - `backfilled_skill_names`: harness-seeded rows that pre-dated the hash-tracking change
+      and had no `canonical_hash` in metadata. We backfilled the hash from the row's current
+      content as a one-time baseline so future syncs can compare.
+
+    A skill name appears in at most one tuple per call. `skipped_reason` is set when no per-skill
+    work was even attempted (e.g. the canonical dir is missing on disk in tests).
     """
 
-    created_skill_names: tuple[str, ...]
+    created_skill_names: tuple[str, ...] = ()
+    updated_skill_names: tuple[str, ...] = ()
+    diverged_skill_names: tuple[str, ...] = ()
+    tombstoned_skill_names: tuple[str, ...] = ()
+    backfilled_skill_names: tuple[str, ...] = ()
     skipped_reason: str | None = None
+
+
+# Backwards-compat alias. The first emit-only deploy returned `SeedResult`; downstream callers
+# may still import the old name. The new `SyncResult` is a strict superset (created_skill_names
+# + skipped_reason are present and behave the same), so the alias is safe.
+SeedResult = SyncResult
 
 
 class CanonicalSkillParseError(ValueError):
@@ -106,9 +132,9 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
-    if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+    if not name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
         raise CanonicalSkillParseError(
-            f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"
+            f"Canonical skill name must start with '{SIGNALS_AGENT_SKILL_PREFIX}': got {name!r} in {skill_file}"
         )
 
     # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
@@ -174,7 +200,7 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
 
 
 def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
-    """Walk `products/signals/skills/signals-scout-*/` and return the parsed manifest.
+    """Walk `products/signals/skills/signals-agent-*/` and return the parsed manifest.
 
     Skipping a malformed canonical entry would mask author errors; instead we let
     `CanonicalSkillParseError` propagate so the harness fails loud and the canonical source
@@ -187,7 +213,7 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
-        if not entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+        if not entry.name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
             continue
         if not (entry / "SKILL.md").is_file():
             continue
@@ -195,79 +221,252 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     return tuple(discovered)
 
 
-def seed_canonical_skills(team: Team) -> SeedResult:
-    """Idempotently seed canonical `signals-scout-*` skills into a team's namespace.
+def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
+    """Stable content fingerprint for a canonical skill on disk.
 
-    No-op when the team already has any `signals-scout-*` skill (deleted or live). Edits
-    and forks on team copies are preserved across calls — once a team has been seeded
-    (or has authored its own row under the prefix), the canonical set never overwrites
-    their content. Existence of any row under the prefix counts as "already seeded",
-    including archived (`deleted=True`) rows; re-seeding archived skills would resurrect
-    content the team deliberately removed.
+    Includes everything that could meaningfully change between revisions: description and body
+    text, the allowed-tools list (sorted so reordering doesn't invalidate), and the bundle
+    treated as a sorted list of `(path, content, content_type)` tuples. The bundle inclusion
+    means a references-only change (e.g. tweaking `references/calibration.md`) still triggers
+    an update — easy to forget if the hash only covered SKILL.md body.
 
-    Concurrent calls are safe: the create path uses `transaction.atomic()` plus the model's
-    unique constraint (`unique_llm_skill_latest_per_team`) to drop duplicate inserts.
+    SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
+    no false positives.
     """
-    existing = list(
-        LLMSkill.objects.filter(team=team, name__startswith=SIGNALS_SCOUT_SKILL_PREFIX).values_list("name", flat=True)
-    )
-    if existing:
-        return SeedResult(
-            created_skill_names=(),
-            skipped_reason=f"team already has {len(set(existing))} signals-scout-* skill(s)",
-        )
+    payload = {
+        "description": canonical.description,
+        "body": canonical.body,
+        "allowed_tools": sorted(canonical.allowed_tools),
+        "files": sorted([(f.path, f.content, f.content_type) for f in canonical.files]),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
+
+def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
+    """Hash a team's `LLMSkill` row in the same shape as `_compute_canonical_hash` so the two
+    can be compared directly. Caller must pre-fetch `files` to avoid an N+1 inside the hash."""
+    payload = {
+        "description": skill.description,
+        "body": skill.body,
+        "allowed_tools": sorted(skill.allowed_tools or []),
+        "files": sorted([(f.path, f.content, f.content_type) for f in files]),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:
+    """Insert a brand-new row for a (team, canonical.name) that has no prior history.
+
+    Caller already verified no row exists. The unique constraint on
+    `(team, name, deleted=False, is_latest=True)` is our race guard — if two coordinator runs
+    fire for the same team at once, one wins and the other gets `IntegrityError`, which the
+    caller swallows.
+    """
+    with transaction.atomic():
+        skill = LLMSkill.objects.create(
+            team=team,
+            name=canonical.name,
+            description=canonical.description,
+            body=canonical.body,
+            allowed_tools=list(canonical.allowed_tools),
+            metadata={
+                "seeded_by": "signals_agent_harness",
+                "source": "products/signals/skills",
+                "canonical_hash": canonical_hash,
+            },
+            version=1,
+            is_latest=True,
+        )
+        if canonical.files:
+            LLMSkillFile.objects.bulk_create(
+                [
+                    LLMSkillFile(
+                        skill=skill,
+                        path=f.path,
+                        content=f.content,
+                        content_type=f.content_type,
+                    )
+                    for f in canonical.files
+                ]
+            )
+
+
+def _update_skill_from_canonical(
+    team: Team, current_latest: LLMSkill, canonical: CanonicalSkill, canonical_hash: str
+) -> None:
+    """Replace the team's live row for this skill with the latest canonical content, bumping
+    the version. Mirrors the version-bump pattern a user-facing PHS edit would produce — old
+    rows aren't mutated; we mark them `is_latest=False` and create a new row at `version+1`.
+    The `metadata.seeded_by="signals_agent_harness"` tag distinguishes our updates from
+    user edits in the version-history view.
+
+    Concurrency: `select_for_update` on the existing latest row pins it for the duration of
+    the txn. If a user-edit racing us has already bumped to `version+1`, we observe their
+    write at lock acquisition and our subsequent insert at `version+1` collides with the
+    unique constraint — caller swallows the IntegrityError (their edit wins, we'll re-evaluate
+    next tick and find their content diverged).
+    """
+    with transaction.atomic():
+        # Re-fetch under FOR UPDATE so concurrent edits serialize behind us.
+        locked = LLMSkill.objects.select_for_update().get(pk=current_latest.pk)
+        new_version = locked.version + 1
+        locked.is_latest = False
+        locked.save(update_fields=["is_latest", "updated_at"])
+
+        new_metadata = dict(locked.metadata or {})
+        new_metadata["seeded_by"] = "signals_agent_harness"
+        new_metadata["source"] = "products/signals/skills"
+        new_metadata["canonical_hash"] = canonical_hash
+
+        new_skill = LLMSkill.objects.create(
+            team=team,
+            name=canonical.name,
+            description=canonical.description,
+            body=canonical.body,
+            allowed_tools=list(canonical.allowed_tools),
+            metadata=new_metadata,
+            version=new_version,
+            is_latest=True,
+        )
+        if canonical.files:
+            LLMSkillFile.objects.bulk_create(
+                [
+                    LLMSkillFile(
+                        skill=new_skill,
+                        path=f.path,
+                        content=f.content,
+                        content_type=f.content_type,
+                    )
+                    for f in canonical.files
+                ]
+            )
+
+
+def _backfill_canonical_hash(skill: LLMSkill, row_hash: str) -> None:
+    """Stamp `canonical_hash` onto a harness-seeded row that pre-dates hash tracking.
+
+    We write the *row's current content hash* (not the canonical hash), establishing a
+    baseline that says "treat whatever the team has now as their snapshot of canonical."
+    Any future drift — either a canonical update or a team edit — becomes detectable
+    on subsequent ticks.
+    """
+    metadata = dict(skill.metadata or {})
+    metadata["canonical_hash"] = row_hash
+    LLMSkill.objects.filter(pk=skill.pk).update(metadata=metadata)
+
+
+def sync_canonical_skills(team: Team) -> SyncResult:
+    """Reconcile a team's `signals-agent-*` rows with the canonical fleet on disk.
+
+    Walks each canonical skill in `products/signals/skills/` and decides per-skill whether
+    to create, update, leave-as-diverged, leave-as-tombstone, or backfill a baseline hash.
+    See `SyncResult` for the four outcome buckets and the section comments below for the
+    full decision table.
+
+    Idempotent and safe to call on every coordinator tick — the only DB writes happen when
+    something actually needs to change, and IntegrityError on races is logged-and-swallowed.
+    """
     canonicals = discover_canonical_skills()
     if not canonicals:
-        return SeedResult(created_skill_names=(), skipped_reason="no canonical signals-scout-* skills on disk")
+        return SyncResult(skipped_reason="no canonical signals-agent-* skills on disk")
 
     created: list[str] = []
+    updated: list[str] = []
+    diverged: list[str] = []
+    tombstoned: list[str] = []
+    backfilled: list[str] = []
+
     for canonical in canonicals:
-        # Direct ORM path is intentional: there's no `create_skill_from_scratch_with_files`
-        # helper at the service layer — `create_skill_file` is per-file incremental on
-        # existing skills, `publish_skill_version` is new-version-of-existing. The
-        # universal contract limits (file count, body bytes, per-file bytes, path length)
-        # are enforced at parse time in `_parse_canonical_skill` to match the REST API.
-        try:
-            with transaction.atomic():
-                skill = LLMSkill.objects.create(
-                    team=team,
-                    name=canonical.name,
-                    description=canonical.description,
-                    body=canonical.body,
-                    allowed_tools=list(canonical.allowed_tools),
-                    metadata={
-                        "seeded_by": "signals_scout_harness",
-                        "source": "products/signals/skills",
-                    },
-                    version=1,
-                    is_latest=True,
+        canonical_hash = _compute_canonical_hash(canonical)
+
+        # Pull every row for this (team, name), live or tombstoned. Existence of any row —
+        # including soft-deleted — counts as "team has seen this skill name before"; we
+        # never resurrect tombstones.
+        rows = list(LLMSkill.objects.filter(team=team, name=canonical.name).order_by("-version"))
+
+        if not rows:
+            # Brand-new for this team. Either a freshly-enabled team, or a specialist
+            # added to the canonical fleet after this team was first seeded.
+            try:
+                _create_skill_from_canonical(team, canonical, canonical_hash)
+                created.append(canonical.name)
+            except IntegrityError:
+                logger.info(
+                    "signals_agent: concurrent create lost the race; skipping",
+                    extra={"team_id": team.id, "skill_name": canonical.name},
                 )
-                if canonical.files:
-                    LLMSkillFile.objects.bulk_create(
-                        [
-                            LLMSkillFile(
-                                skill=skill,
-                                path=f.path,
-                                content=f.content,
-                                content_type=f.content_type,
-                            )
-                            for f in canonical.files
-                        ]
-                    )
+            continue
+
+        live = next((r for r in rows if not r.deleted and r.is_latest), None)
+        if live is None:
+            # All rows for this name are deleted or non-latest archives. Treat as
+            # tombstoned: the team explicitly removed this skill from their rotation.
+            tombstoned.append(canonical.name)
+            continue
+
+        live_files = list(live.files.all())
+        live_hash = _compute_row_hash(live, live_files)
+        stored_hash = (live.metadata or {}).get("canonical_hash")
+
+        if stored_hash is None:
+            # Pre-existing harness-seeded row from before hash tracking landed. Establish a
+            # baseline and defer any update decision to the next tick. We do this for any
+            # signals-agent-* row regardless of provenance — a hand-authored row missing the
+            # hash is treated the same way (its baseline becomes its current content, which
+            # means it'll register as diverged on the next canonical change, which is correct).
+            _backfill_canonical_hash(live, live_hash)
+            backfilled.append(canonical.name)
+            continue
+
+        if live_hash == canonical_hash:
+            # Already at the latest canonical content. No-op.
+            continue
+
+        if live_hash != stored_hash:
+            # The team's content drifted away from whatever canonical we last wrote — they
+            # edited their copy. Leave it alone. They can opt back in via the management
+            # command (`reset_signals_agent_skill`) if they want to.
+            diverged.append(canonical.name)
+            continue
+
+        # Stored hash matches the team's current content (= they haven't edited since our
+        # last write) but differs from current canonical (= we shipped a new revision).
+        # Safe to overwrite.
+        try:
+            _update_skill_from_canonical(team, live, canonical, canonical_hash)
+            updated.append(canonical.name)
         except IntegrityError:
-            # A concurrent caller (e.g. two coordinator-spawned runs for the same team)
-            # raced us. The other writer's row stands; we move on.
             logger.info(
-                "signals_scout: concurrent seed dropped, canonical skill already created",
+                "signals_agent: concurrent update lost the race; skipping",
                 extra={"team_id": team.id, "skill_name": canonical.name},
             )
-            continue
-        created.append(canonical.name)
 
-    if created:
+    if created or updated or backfilled:
         logger.info(
-            "signals_scout: seeded canonical skills",
-            extra={"team_id": team.id, "skill_names": created},
+            "signals_agent: synced canonical skills",
+            extra={
+                "team_id": team.id,
+                "created": created,
+                "updated": updated,
+                "backfilled": backfilled,
+                "diverged": diverged,
+                "tombstoned": tombstoned,
+            },
         )
-    return SeedResult(created_skill_names=tuple(created))
+
+    return SyncResult(
+        created_skill_names=tuple(created),
+        updated_skill_names=tuple(updated),
+        diverged_skill_names=tuple(diverged),
+        tombstoned_skill_names=tuple(tombstoned),
+        backfilled_skill_names=tuple(backfilled),
+    )
+
+
+def seed_canonical_skills(team: Team) -> SyncResult:
+    """Backwards-compat alias for `sync_canonical_skills`.
+
+    Older callsites and tests reference this name; they get the richer sync semantics for free.
+    Prefer `sync_canonical_skills` in new code — the name reflects what it actually does.
+    """
+    return sync_canonical_skills(team)

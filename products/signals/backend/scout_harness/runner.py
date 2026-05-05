@@ -13,7 +13,7 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Reuse the report-research sandbox env. Same posture: full repo on disk, restricted
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
-SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
+SIGNALS_AGENT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class RunResult:
     skip_reason: str | None = None
 
 
-def run_signals_scout(
+def run_signals_agent(
     *,
     team_id: int,
     skill_name: str,
@@ -63,10 +63,10 @@ def run_signals_scout(
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
     Wraps the async core for callers that aren't inside an event loop (management
-    command, direct script). Temporal activities call `arun_signals_scout` directly.
+    command, direct script). Temporal activities call `arun_signals_agent` directly.
     """
     return asyncio.run(
-        arun_signals_scout(
+        arun_signals_agent(
             team_id=team_id,
             skill_name=skill_name,
             skill_version=skill_version,
@@ -76,7 +76,7 @@ def run_signals_scout(
     )
 
 
-async def arun_signals_scout(
+async def arun_signals_agent(
     *,
     team_id: int,
     skill_name: str,
@@ -87,14 +87,15 @@ async def arun_signals_scout(
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
-    # Lazy-seed canonical signals-scout-* skills if the team has none yet, so the run
-    # has something to load. Failures here should not crash the run — we log and continue
-    # with whatever skills the team already has.
+    # Sync canonical signals-agent-* skills before we resolve the skill the run asked for.
+    # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
+    # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
+    # crash the run — we log and continue with whatever skills the team already has.
     try:
-        await database_sync_to_async(seed_canonical_skills, thread_sensitive=False)(team)
+        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team)
     except Exception:
         logger.exception(
-            "signals_scout: canonical skill seed failed; continuing with existing team skills",
+            "signals_agent: canonical skill sync failed; continuing with existing team skills",
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
@@ -175,38 +176,22 @@ async def arun_signals_scout(
             skill_version=skill.version,
         )
     except BaseException as exc:
-        # Cancellation / worker-shutdown / system-exit: persist the failure so the row
-        # doesn't go stale, then re-raise so Temporal sees the activity as failed. The
-        # `except Exception` branch above doesn't catch `asyncio.CancelledError` (which
-        # subclasses BaseException in Python 3.8+) — without this, "Worker is shutting
-        # down" leaves the row at status=running and blocks every subsequent run.
+        # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
+        # activity as failed. Post-collapse the bridge row's status flows from its
+        # linked TaskRun (managed by MultiTurnSession), so we don't update anything
+        # here directly. The self-heal path on the next coordinator tick reconciles
+        # any bridge row whose TaskRun got stranded in IN_PROGRESS.
         runtime_s = time.monotonic() - started
         logger.warning(
-            "signals_agent: run cancelled mid-flight, marking row failed",
+            "signals_scout: run cancelled mid-flight",
             extra={
                 "team_id": team_id,
-                "run_id": str(run.id),
+                "run_id": str(run_id),
                 "skill_name": skill.name,
                 "exception_type": type(exc).__name__,
+                "runtime_s": runtime_s,
             },
         )
-        try:
-            await database_sync_to_async(_finalize_failed, thread_sensitive=False)(
-                run_id=run.id,
-                exc=exc,
-                runtime_s=runtime_s,
-                budget=budget,
-                skill=skill,
-            )
-        except Exception:
-            # If we can't even write the failure row (e.g. worker truly going away),
-            # let the next coordinator tick's self-heal path catch it. Don't swallow
-            # the original cancellation.
-            logger.exception(
-                "signals_agent: failed to mark row failed during cancellation; "
-                "self-heal will reconcile on next coordinator tick",
-                extra={"team_id": team_id, "run_id": str(run.id)},
-            )
         raise
 
 
@@ -227,7 +212,7 @@ async def _spawn_and_run(
     user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team.id)
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+        SIGNALS_AGENT_SANDBOX_ENV_NAME,
         SandboxEnvironment.NetworkAccessLevel.TRUSTED,
     )
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
@@ -239,9 +224,9 @@ async def _spawn_and_run(
         user_id=user_id,
         repository=repository,
         sandbox_environment_id=sandbox_env_id,
-        # `signals_scout` is the harness's own scope posture: same scope content as
+        # `signals_agent` is the harness's own scope posture: same scope content as
         # `read_only` (project reads + INTERNAL_SCOPES, including
-        # `signal_scout_internal:write`) but reports `has_write_scopes=True` so the
+        # `signal_agent_internal:write`) but reports `has_write_scopes=True` so the
         # MCP server doesn't enable read-only-mode tool filtering. Without that
         # opt-out, the MCP layer would categorically strip every tool annotated
         # `readOnlyHint: false` — including the agent's own `remember`, `forget`,
@@ -279,7 +264,7 @@ async def _spawn_and_run(
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=context,
-        model=SignalScoutRunSummary,
+        model=SignalAgentRunSummary,
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
@@ -401,4 +386,4 @@ def _finalize_run_summary(*, run_id: Any, summary: str) -> None:
 def _step_name(skill: LoadedSkill) -> str:
     # Surfaces in the Task title and S3 log prefix. Keep terse — the sandbox truncates.
     safe = skill.name.replace(" ", "_")[:40]
-    return f"signals_scout:{safe}"
+    return f"signals_agent:{safe}"
