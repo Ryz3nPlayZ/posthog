@@ -136,7 +136,7 @@ export const SignalsAgentRunsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
  * @summary Get a run by ID
  */
 export const signalsAgentRunsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]+$')

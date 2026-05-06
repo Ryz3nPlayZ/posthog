@@ -35532,15 +35532,13 @@ export namespace Schemas {
 
     export type SignalAgentRunDetailHypothesesConsideredItem = { [key: string]: unknown };
 
-    export type SignalAgentRunDetailToolCallLogItem = { [key: string]: unknown };
-
     /**
-     * {tool_calls, cost_usd, runtime_s, findings} — actual usage.
+     * Measured quantities about how the run went, e.g. {runtime_s, findings}.
      */
-    export type SignalAgentRunDetailBudgetUsed = {[key: string]: number};
+    export type SignalAgentRunDetailRunMetrics = {[key: string]: number};
 
     /**
-     * Run metadata snapshot (budget caps, skill id, allowed_tools resolution).
+     * Run metadata snapshot (limits, skill id, allowed_tools resolution).
      */
     export type SignalAgentRunDetailMetadata = { [key: string]: unknown };
 
@@ -35569,11 +35567,9 @@ export namespace Schemas {
       findings: SignalAgentRunDetailFindingsItem[];
       /** Hypotheses the run considered, including ones it explicitly skipped. */
       hypotheses_considered: SignalAgentRunDetailHypothesesConsideredItem[];
-      /** Per-tool-call log entries for this run. */
-      tool_call_log: SignalAgentRunDetailToolCallLogItem[];
-      /** {tool_calls, cost_usd, runtime_s, findings} — actual usage. */
-      budget_used: SignalAgentRunDetailBudgetUsed;
-      /** Run metadata snapshot (budget caps, skill id, allowed_tools resolution). */
+      /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
+      run_metrics: SignalAgentRunDetailRunMetrics;
+      /** Run metadata snapshot (limits, skill id, allowed_tools resolution). */
       metadata: SignalAgentRunDetailMetadata;
     }
 

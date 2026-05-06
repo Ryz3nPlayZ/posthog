@@ -130,15 +130,13 @@ export type SignalAgentRunDetailApiFindingsItem = { [key: string]: unknown }
 
 export type SignalAgentRunDetailApiHypothesesConsideredItem = { [key: string]: unknown }
 
-export type SignalAgentRunDetailApiToolCallLogItem = { [key: string]: unknown }
-
 /**
- * {tool_calls, cost_usd, runtime_s, findings} — actual usage.
+ * Measured quantities about how the run went, e.g. {runtime_s, findings}.
  */
-export type SignalAgentRunDetailApiBudgetUsed = { [key: string]: number }
+export type SignalAgentRunDetailApiRunMetrics = { [key: string]: number }
 
 /**
- * Run metadata snapshot (budget caps, skill id, allowed_tools resolution).
+ * Run metadata snapshot (limits, skill id, allowed_tools resolution).
  */
 export type SignalAgentRunDetailApiMetadata = { [key: string]: unknown }
 
@@ -167,11 +165,9 @@ export interface SignalAgentRunDetailApi {
     findings: SignalAgentRunDetailApiFindingsItem[]
     /** Hypotheses the run considered, including ones it explicitly skipped. */
     hypotheses_considered: SignalAgentRunDetailApiHypothesesConsideredItem[]
-    /** Per-tool-call log entries for this run. */
-    tool_call_log: SignalAgentRunDetailApiToolCallLogItem[]
-    /** {tool_calls, cost_usd, runtime_s, findings} — actual usage. */
-    budget_used: SignalAgentRunDetailApiBudgetUsed
-    /** Run metadata snapshot (budget caps, skill id, allowed_tools resolution). */
+    /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
+    run_metrics: SignalAgentRunDetailApiRunMetrics
+    /** Run metadata snapshot (limits, skill id, allowed_tools resolution). */
     metadata: SignalAgentRunDetailApiMetadata
 }
 
