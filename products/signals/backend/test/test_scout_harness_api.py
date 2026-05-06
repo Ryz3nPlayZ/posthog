@@ -84,15 +84,15 @@ def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, 
         "skill_version": 1,
     }
     defaults.update(overrides)
-    return SignalScoutRun.objects.create(team=team, **defaults)
+    return SignalAgentRun.objects.create(team=team, **defaults)
 
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/"
+        return f"/api/projects/{self.team.id}/signals/agent/runs/"
 
     def _detail_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/"
+        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/"
 
     def test_list_returns_runs_for_team_newest_first(self) -> None:
         older = _make_run(self.team)
@@ -173,15 +173,15 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         SignalSourceConfig.objects.get_or_create(
             team=self.team,
-            source_product="signals_scout",
+            source_product="signals_agent",
             source_type="cross_source_issue",
             defaults={"enabled": True},
         )
         # emit-signal requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 
-    def _emit_signal_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-signal/"
+    def _findings_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/findings/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -254,10 +254,10 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         _authenticate_as_scout(self)
 
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
+        return f"/api/projects/{self.team.id}/signals/agent/memory/"
 
-    def _forget_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/"
+    def _delete_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/agent/memory/delete/"
 
     def test_remember_creates_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked"}
@@ -272,8 +272,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         second = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json")
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
-        assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
-        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+        assert SignalMemory.objects.filter(team=self.team, key="k1").count() == 1
+        assert SignalMemory.objects.get(team=self.team, key="k1").content == "v2"
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -293,8 +293,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
-        SignalScratchpad.objects.create(team=other, key="theirs", content="leaked?")
-        SignalScratchpad.objects.create(team=self.team, key="ours", content="visible")
+        SignalMemory.objects.create(team=other, key="theirs", content="leaked?")
+        SignalMemory.objects.create(team=self.team, key="ours", content="visible")
         response = self.client.get(self._list_url())
         keys = [row["key"] for row in response.json()]
         assert keys == ["ours"]
@@ -304,7 +304,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         response = self.client.post(self._forget_url(), data={"key": "k1"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": True}
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
 
     def test_forget_returns_false_when_key_missing(self) -> None:
         response = self.client.post(self._forget_url(), data={"key": "ghost"}, format="json")
@@ -319,7 +319,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
-        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        row = SignalMemory.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(run.id)
 
     def test_remember_rejects_run_id_from_another_team(self) -> None:
@@ -335,7 +335,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("attr") == "run_id"
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
 
     def test_remember_rejects_unknown_run_id(self) -> None:
         # A well-formed UUID that doesn't reference any run row should also bounce —
@@ -367,10 +367,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
-        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
-        # call /current/; tests must match or the requests 404 and never exercise the view.
-        return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
+        return f"/api/projects/{self.team.id}/signals/agent/project_profile/current/"
 
     def test_lazy_computes_a_profile_when_none_exists(self) -> None:
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
@@ -421,16 +418,6 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
-            "recent_activity",
             "recent_dashboards",
-            "recent_surveys",
-            "recent_feature_flags",
-            "recent_experiments",
-            "recent_alerts",
-            "recent_hog_functions",
-            "recent_hog_flows",
-            "recent_notebooks",
-            "recent_cohorts",
-            "recent_actions",
             "top_events",
         }

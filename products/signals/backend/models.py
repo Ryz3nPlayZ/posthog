@@ -489,6 +489,20 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
         ]
+        constraints = [
+            # Closes the TOCTOU window between the runner's `_has_running_run` check
+            # and the row insert: two children dispatched in parallel for the same
+            # (team, skill) could both pass the check before either insert lands. The
+            # DB rejects the second INSERT with IntegrityError, which the runner
+            # translates into a clean skip. Partial — only RUNNING rows are
+            # single-flight; terminal states (completed/failed/abandoned) can stack
+            # for the same (team, skill) freely.
+            models.UniqueConstraint(
+                fields=("team", "skill_name"),
+                condition=models.Q(status="running"),
+                name="signal_agent_run_one_running_per_team_skill",
+            ),
+        ]
 
 
 class SignalScratchpad(TeamScopedRootMixin, UUIDModel):

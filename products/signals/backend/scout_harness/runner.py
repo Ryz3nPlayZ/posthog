@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from django.db import IntegrityError
 from django.utils import timezone
 
 from posthog.models.team.team import Team
@@ -109,9 +110,11 @@ async def arun_signals_agent(
     # coordinator tick from spawning a fresh run.
     await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, config.id)
 
-    # Skip-if-running guard. Best-effort — there is a race window between this check
-    # and the row insert below (a second trigger could land in between), which we
-    # accept until a claim/lease primitive lands.
+    # Skip-if-running guard, keyed on (team, skill_name). Different skills for the
+    # same team are allowed to run concurrently — `runs_per_tick > 1` relies on this.
+    # Best-effort — there is a race window between this check and the bridge-row
+    # insert inside _spawn_and_run (a second trigger could land in between), which
+    # we accept until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(
         team_id=team_id, config_id=str(config.id), skill_name=skill.name
     ):
@@ -334,7 +337,7 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
     ).only("id", "started_at", "metadata")
     now = timezone.now()
     for run in candidates:
-        budget_max_s = ((run.metadata or {}).get("budget", {}) or {}).get("max_runtime_s") or DEFAULT_MAX_RUNTIME_S
+        budget_max_s = ((run.metadata or {}).get("limits", {}) or {}).get("max_runtime_s") or DEFAULT_MAX_RUNTIME_S
         threshold_s = _STALE_RUN_MULTIPLIER * budget_max_s
         age_s = (now - run.started_at).total_seconds()
         if age_s <= threshold_s:

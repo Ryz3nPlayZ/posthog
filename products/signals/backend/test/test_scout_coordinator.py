@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -17,7 +18,6 @@ from posthog.sync import database_sync_to_async
 from products.llm_analytics.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalAgentConfig
 from products.signals.backend.temporal.agentic.agent_coordinator import (
-    MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
@@ -303,26 +303,6 @@ async def test_runs_per_tick_no_duplicates_invariant(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-<<<<<<< HEAD
-=======
-async def test_limit_overrides_propagate_to_planned_run(ateam):
-    await database_sync_to_async(SignalAgentConfig.objects.create)(
-        team=ateam,
-        enabled=True,
-        limit_overrides={"max_runtime_s": 900},
-    )
-    await database_sync_to_async(_create_skill)(ateam, "signals-agent-errors")
-
-    env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
-
-    assert len(output.planned_runs) == 1
-    assert output.planned_runs[0].limit_overrides == {"max_runtime_s": 900}
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
->>>>>>> 76afccb1c9b (feat(signals): hash-tracked sync replaces one-shot canonical seed)
 async def test_planned_runs_one_per_team_sorted_by_team_id(ateam, aother_team):
     """One PlannedRun per enabled team (sampling-of-one), sorted by team_id so the
     stagger assignment is stable across ticks."""
