@@ -4575,44 +4575,6 @@ class TimeRange(BaseModel):
     date_to: str
 
 
-class SignalsAgentSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    agent_run_id: str
-    confidence: float = Field(
-        ...,
-        description=("Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
-    )
-    dedupe_keys: list[str] | None = Field(
-        default=None,
-        description="Free-form short keys the harness can use for cross-run dedupe.",
-    )
-    evidence: list[SignalsAgentEvidenceEntry]
-    finding_id: str
-    hypothesis: str | None = None
-    mcp_trace_id: str | None = Field(
-        default=None,
-        description=("Trace id from the LLM analytics span for the agent run, when available."),
-    )
-    severity: Severity | None = None
-    skill_name: str
-    skill_version: float
-    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
-
-
-class SignalsAgentSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SignalsAgentSignalExtra
-    source_id: str
-    source_product: Literal["signals_agent"] = "signals_agent"
-    source_type: Literal["cross_source_issue"] = "cross_source_issue"
-    weight: float
-
-
 class SimilarIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8485,32 +8447,42 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
-class SignalInput(
-    RootModel[
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | SignalsAgentSignalInput
-    ]
-):
-    root: (
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | SignalsAgentSignalInput
+class SignalsAgentSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
+    agent_run_id: str
+    confidence: float = Field(
+        ...,
+        description=("Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+    )
+    dedupe_keys: list[str] | None = Field(
+        default=None,
+        description="Free-form short keys the harness can use for cross-run dedupe.",
+    )
+    evidence: list[SignalsAgentEvidenceEntry]
+    finding_id: str
+    hypothesis: str | None = None
+    mcp_trace_id: str | None = Field(
+        default=None,
+        description=("Trace id from the LLM analytics span for the agent run, when available."),
+    )
+    severity: Severity | None = None
+    skill_name: str
+    skill_version: int
+    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
+
+
+class SignalsAgentSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalsAgentSignalExtra
+    source_id: str
+    source_product: Literal["signals_agent"] = "signals_agent"
+    source_type: Literal["cross_source_issue"] = "cross_source_issue"
+    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -18323,6 +18295,34 @@ class SessionsTimelineQuery(BaseModel):
     response: SessionsTimelineQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SignalInput(
+    RootModel[
+        SessionProblemSignalInput
+        | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
+        | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
+        | SignalsAgentSignalInput
+    ]
+):
+    root: (
+        SessionProblemSignalInput
+        | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
+        | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
+        | SignalsAgentSignalInput
+    )
 
 
 class SurveyCreationSchema(BaseModel):

@@ -36036,7 +36036,7 @@
                     "type": "string"
                 },
                 "skill_version": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "time_range": {
                     "additionalProperties": false,
