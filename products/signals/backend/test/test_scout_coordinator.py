@@ -144,16 +144,17 @@ async def test_explicit_skill_list_filters_to_existing_only(ateam):
 
 
 async def test_sampling_picks_one_uniformly_from_candidates(ateam):
-    """With multiple candidates on a single team, the coordinator picks exactly one
-    via `random.choice`. Patching the choice gives us deterministic assertions."""
+    """With multiple candidates on a single team and `runs_per_tick=1` (default),
+    the coordinator picks exactly one via `random.sample`. Patching gives us
+    deterministic assertions."""
     await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
     await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
     await database_sync_to_async(_create_skill)(ateam, "signals-agent-beta")
     await database_sync_to_async(_create_skill)(ateam, "signals-agent-gamma")
 
     with patch(
-        "products.signals.backend.temporal.agentic.agent_coordinator.random.choice",
-        side_effect=lambda candidates: candidates[1],  # always pick the middle
+        "products.signals.backend.temporal.agentic.agent_coordinator.random.sample",
+        side_effect=lambda population, k: [population[1]],  # always pick the middle, k must be 1
     ):
         env = ActivityEnvironment()
         output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
@@ -179,20 +180,123 @@ async def test_sampling_pool_respects_enabled_skill_names_constraint(ateam):
 
     captured: dict[str, Any] = {}
 
-    def _capture_and_choose(candidates):
-        captured["candidates"] = list(candidates)
-        return candidates[0]
+    def _capture_and_sample(population, k):
+        captured["population"] = list(population)
+        captured["k"] = k
+        return [population[0]]
 
     with patch(
-        "products.signals.backend.temporal.agentic.agent_coordinator.random.choice",
-        side_effect=_capture_and_choose,
+        "products.signals.backend.temporal.agentic.agent_coordinator.random.sample",
+        side_effect=_capture_and_sample,
     ):
         env = ActivityEnvironment()
         output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
-    assert captured["candidates"] == ["signals-agent-alpha", "signals-agent-beta"]
-    assert "signals-agent-gamma" not in captured["candidates"]
+    assert captured["population"] == ["signals-agent-alpha", "signals-agent-beta"]
+    assert captured["k"] == 1  # default runs_per_tick
+    assert "signals-agent-gamma" not in captured["population"]
     assert [p.skill_name for p in output.planned_runs] == ["signals-agent-alpha"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runs_per_tick_fans_out_n_of_m_skills(ateam):
+    """`runs_per_tick=3` with 5 candidates returns 3 distinct skills per tick."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
+        team=ateam, enabled=True, enabled_skill_names=None, runs_per_tick=3
+    )
+    for name in [
+        "signals-agent-alpha",
+        "signals-agent-beta",
+        "signals-agent-gamma",
+        "signals-agent-delta",
+        "signals-agent-epsilon",
+    ]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+
+    captured: dict[str, Any] = {}
+
+    def _capture_and_sample(population, k):
+        captured["population"] = list(population)
+        captured["k"] = k
+        # Return the first k — sampling logic itself is `random`'s responsibility, not ours.
+        return list(population[:k])
+
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_coordinator.random.sample",
+        side_effect=_capture_and_sample,
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    assert captured["k"] == 3  # min(runs_per_tick=3, len(candidates)=5)
+    assert len(captured["population"]) == 5  # all candidates fed to the sampler
+    assert len(output.planned_runs) == 3
+    # Result is sorted before being added to planned runs — defense against duplicates
+    # within one tick is the no-replacement property of `random.sample`, not ours.
+    skill_names = [p.skill_name for p in output.planned_runs]
+    assert skill_names == sorted(skill_names)
+    assert len(set(skill_names)) == 3  # all distinct
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runs_per_tick_clamps_when_above_candidate_count(ateam):
+    """`runs_per_tick=10` with only 2 candidates clamps to 2 — runs all of them, no error."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
+        team=ateam, enabled=True, enabled_skill_names=None, runs_per_tick=10
+    )
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-beta")
+
+    env = ActivityEnvironment()
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    skill_names = sorted(p.skill_name for p in output.planned_runs)
+    assert skill_names == ["signals-agent-alpha", "signals-agent-beta"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runs_per_tick_zero_soft_pauses_team(ateam):
+    """`runs_per_tick=0` is a soft pause: the team stays `enabled=True` but contributes
+    no runs this tick. Useful during incident windows without flipping the boolean."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
+        team=ateam, enabled=True, enabled_skill_names=None, runs_per_tick=0
+    )
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-beta")
+
+    env = ActivityEnvironment()
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    assert output.planned_runs == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runs_per_tick_no_duplicates_invariant(ateam):
+    """Sanity check on the no-replacement invariant. With `runs_per_tick=5` and
+    5 candidates, every candidate appears exactly once in the planned runs."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
+        team=ateam, enabled=True, enabled_skill_names=None, runs_per_tick=5
+    )
+    candidates_seeded = [
+        "signals-agent-alpha",
+        "signals-agent-beta",
+        "signals-agent-gamma",
+        "signals-agent-delta",
+        "signals-agent-epsilon",
+    ]
+    for name in candidates_seeded:
+        await database_sync_to_async(_create_skill)(ateam, name)
+
+    env = ActivityEnvironment()
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    skill_names = [p.skill_name for p in output.planned_runs]
+    assert sorted(skill_names) == sorted(candidates_seeded)
+    assert len(set(skill_names)) == len(candidates_seeded)  # no duplicates
 
 
 @pytest.mark.asyncio

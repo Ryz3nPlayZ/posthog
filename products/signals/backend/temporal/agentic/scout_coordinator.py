@@ -136,7 +136,7 @@ def _collect_planned_runs() -> list[PlannedRun]:
 
 
 def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) -> list[str]:
-    """Return the (length-0 or 1) list of skill names to run for this team's config.
+    """Return the (length-0 to N) list of skill names to run for this team's config.
 
     The set of *candidate* skills comes from:
       - `enabled_skill_names = None` → all `signals-agent-*` skills on the team.
@@ -144,11 +144,22 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
         order), intersected with the skills that actually exist on the team so the
         activity output is grounded in reality.
 
-    The coordinator then picks **one** skill from the candidate set uniformly at random
-    per tick. With multiple `signals-agent-*` skills on a team (general + specialists),
-    this gives each skill an equal share of run slots over time without firing them all
-    every tick. The sample-of-one design lets users author new `signals-agent-foo`
-    skills that automatically join the rotation without coordinator-side wiring.
+    The coordinator then samples `min(runs_per_tick, len(candidates))` distinct skills
+    from the candidate set uniformly at random per tick (sampled without replacement, so
+    the same skill cannot fire twice in one tick). With `runs_per_tick=1` (the default),
+    each candidate gets an equal share of run slots over time without firing them all
+    every tick. Higher `runs_per_tick` lets a single team cover more lenses per tick —
+    useful for dogfood teams where the daily search-space matters more than per-tick
+    worker compactness. New `signals-agent-foo` skills authored by users automatically
+    join the rotation without coordinator-side wiring.
+
+    Edge cases (handled in-place — no exceptions):
+      - `runs_per_tick = 0` → returns `[]`. Soft-pause: the team stays `enabled=True`
+        but contributes no runs this tick. Useful during incident windows without
+        flipping the boolean.
+      - `runs_per_tick > len(candidates)` → clamps via `min()`. A team with 2 skills
+        and `runs_per_tick=10` runs both, no error.
+      - `len(candidates) == 0` → returns `[]`. Same as before — nothing to sample from.
 
     Inefficiency on a team where a specialist is irrelevant (e.g. `signals-agent-llm-analytics`
     on a project with no LLM activity) is handled at the agent layer via memory: the
@@ -180,18 +191,29 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
 
     if not candidates:
         return []
-    if len(candidates) == 1:
-        return list(candidates)
 
-    chosen = random.choice(candidates)
+    sample_size = min(config.runs_per_tick, len(candidates))
+    if sample_size <= 0:
+        # Soft-pause: team is enabled but explicitly opted out of this tick.
+        logger.info(
+            "signals_agent coordinator: runs_per_tick=0, skipping team this tick",
+            team_id=team_id,
+            candidate_count=len(candidates),
+        )
+        return []
+
+    # Sort the sample to keep child workflow IDs predictable and log output stable.
+    # `random.sample` is uniform without replacement — no duplicate skills per tick.
+    chosen = sorted(random.sample(candidates, k=sample_size))
     logger.info(
-        "signals_agent coordinator: sampled skill from candidate set",
+        "signals_agent coordinator: sampled skills from candidate set",
         team_id=team_id,
         chosen=chosen,
+        sample_size=sample_size,
         candidate_count=len(candidates),
         candidates=candidates,
     )
-    return [chosen]
+    return chosen
 
 
 @workflow.defn(name="run-signals-agent-coordinator")
