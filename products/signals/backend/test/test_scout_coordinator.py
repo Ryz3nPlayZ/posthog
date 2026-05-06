@@ -15,15 +15,15 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill
-from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.temporal.agentic.scout_coordinator import (
+from products.signals.backend.models import SignalAgentConfig
+from products.signals.backend.temporal.agentic.agent_coordinator import (
     MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
     PlannedRun,
-    SignalsScoutCoordinatorWorkflow,
-    fetch_enabled_signals_scout_runs_activity,
+    SignalsAgentCoordinatorWorkflow,
+    fetch_enabled_signals_agent_runs_activity,
 )
 
 
@@ -68,105 +68,189 @@ def _create_skill(team: Team, name: str) -> LLMSkill:
     return LLMSkill.objects.create(team=team, name=name, description="d", body="b")
 
 
+@pytest.fixture(autouse=True)
+def _stub_canonical_seed(request):
+    """Stub `seed_canonical_skills` to a no-op for every test in this module.
+
+    These tests assert on coordinator sampling logic using hand-authored skills as fixtures.
+    The real sync would write the canonical fleet onto every team on first encounter, which
+    pollutes the candidate pool with skills the test didn't set up. We rely on dedicated
+    coverage in `test_agent_harness_lazy_seed.py` for the sync semantics; here we only
+    care that the coordinator calls it (and tolerates failures).
+
+    Tests that exercise the real sync (e.g. asserting brand-new teams get seeded) opt out
+    by marking themselves `@pytest.mark.real_canonical_seed`.
+    """
+    if request.node.get_closest_marker("real_canonical_seed"):
+        yield
+        return
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_coordinator.seed_canonical_skills",
+        return_value=None,
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_disabled_config_is_skipped(ateam):
     # enabled defaults to False — get_or_create gives a disabled row.
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=False)
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=False)
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-errors")
 
     env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
     assert output.planned_runs == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_null_skill_list_globs_signals_scout_prefix(ateam):
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-llm")
+async def test_null_skill_list_globs_signals_agent_prefix_then_samples_one(ateam):
+    """`enabled_skill_names=None` widens the candidate pool to all `signals-agent-*`
+    skills on the team; the coordinator then samples one uniformly per tick."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-errors")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-llm")
     # Non-matching prefix is ignored.
     await database_sync_to_async(_create_skill)(ateam, "custom-helper")
 
     env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
-    names = [p.skill_name for p in output.planned_runs]
-    assert names == ["signals-scout-errors", "signals-scout-llm"]
-    assert all(p.team_id == ateam.id for p in output.planned_runs)
+    # Exactly one planned run, drawn from the two matching candidates.
+    assert len(output.planned_runs) == 1
+    assert output.planned_runs[0].skill_name in {"signals-agent-errors", "signals-agent-llm"}
+    assert output.planned_runs[0].team_id == ateam.id
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_explicit_skill_list_filters_to_existing_only(ateam):
-    await database_sync_to_async(SignalScoutConfig.objects.create)(
+    """`enabled_skill_names = [...]` narrows the candidate pool to that intersection
+    with what's on the team. With one valid candidate, sampling returns it deterministically."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
         team=ateam,
         enabled=True,
-        enabled_skill_names=["signals-scout-errors", "signals-scout-typo"],
+        enabled_skill_names=["signals-agent-errors", "signals-agent-typo"],
     )
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-llm")  # not in list
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-errors")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-llm")  # not in list
 
     env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
-    assert [p.skill_name for p in output.planned_runs] == ["signals-scout-errors"]
+    assert [p.skill_name for p in output.planned_runs] == ["signals-agent-errors"]
+
+
+async def test_sampling_picks_one_uniformly_from_candidates(ateam):
+    """With multiple candidates on a single team, the coordinator picks exactly one
+    via `random.choice`. Patching the choice gives us deterministic assertions."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-beta")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-gamma")
+
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_coordinator.random.choice",
+        side_effect=lambda candidates: candidates[1],  # always pick the middle
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    # Candidates are sorted before sampling, so index 1 == "signals-agent-beta".
+    assert [p.skill_name for p in output.planned_runs] == ["signals-agent-beta"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_planned_runs_sort_by_team_then_skill(ateam, aother_team):
+async def test_sampling_pool_respects_enabled_skill_names_constraint(ateam):
+    """When `enabled_skill_names` is set, the sampling pool is the intersection of
+    that list with skills actually present on the team — not the full glob."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(
+        team=ateam,
+        enabled=True,
+        enabled_skill_names=["signals-agent-alpha", "signals-agent-beta"],
+    )
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-beta")
+    # Off-list skill exists on the team but is excluded from sampling.
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-gamma")
+
+    captured: dict[str, Any] = {}
+
+    def _capture_and_choose(candidates):
+        captured["candidates"] = list(candidates)
+        return candidates[0]
+
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_coordinator.random.choice",
+        side_effect=_capture_and_choose,
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    assert captured["candidates"] == ["signals-agent-alpha", "signals-agent-beta"]
+    assert "signals-agent-gamma" not in captured["candidates"]
+    assert [p.skill_name for p in output.planned_runs] == ["signals-agent-alpha"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_planned_runs_one_per_team_sorted_by_team_id(ateam, aother_team):
+    """One PlannedRun per enabled team (sampling-of-one), sorted by team_id so the
+    stagger assignment is stable across ticks."""
     # Insert in the "wrong" order to verify sort behavior.
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=aother_team, enabled=True)
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=True)
-    await database_sync_to_async(_create_skill)(aother_team, "signals-scout-errors")
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-zeta")
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-alpha")
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=aother_team, enabled=True)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True)
+    await database_sync_to_async(_create_skill)(aother_team, "signals-agent-errors")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-zeta")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
 
     env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
-    pairs = [(p.team_id, p.skill_name) for p in output.planned_runs]
-    # Sort key: (team_id, skill_name) — primary by team, secondary by skill name.
-    assert pairs == sorted(pairs)
-    assert set(pairs) == {
-        (ateam.id, "signals-scout-alpha"),
-        (ateam.id, "signals-scout-zeta"),
-        (aother_team.id, "signals-scout-errors"),
-    }
+    # One PlannedRun per team; ateam's run is one of {alpha, zeta} via sampling.
+    assert len(output.planned_runs) == 2
+    team_ids = [p.team_id for p in output.planned_runs]
+    assert team_ids == sorted(team_ids)
+    by_team = {p.team_id: p.skill_name for p in output.planned_runs}
+    assert by_team[ateam.id] in {"signals-agent-alpha", "signals-agent-zeta"}
+    assert by_team[aother_team.id] == "signals-agent-errors"
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.real_canonical_seed
 async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
-    # An enabled config on a brand-new team (no signals-scout-* skills yet) should
+    # An enabled config on a brand-new team (no signals-agent-* skills yet) should
     # still produce planned runs: the coordinator lazy-seeds the canonical set on
     # first encounter so the cadence path doesn't depend on a manual seed step.
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
 
     pre = await database_sync_to_async(
         lambda: list(
-            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
         )
     )()
     assert pre == []
 
     env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
     seeded = await database_sync_to_async(
         lambda: list(
-            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
         )
     )()
-    # The canonical fleet ships `signals-scout-general` (cross-product generalist) plus
-    # specialists; assert at least one canonical skill was seeded and made it into
-    # planned runs, rather than naming a specific one (so future canonical additions
-    # or renames don't break this test).
-    assert any(name.startswith("signals-scout-") for name in seeded)
-    assert any(p.skill_name.startswith("signals-scout-") for p in output.planned_runs)
+    # The canonical fleet ships `signals-agent-general` (cross-product generalist) plus
+    # specialists; assert at least one canonical skill was seeded.
+    assert any(name.startswith("signals-agent-") for name in seeded)
+    # Sampling-of-one means exactly one PlannedRun per team, drawn at random from the
+    # seeded set. Assert the planned run names a real seeded skill rather than asserting
+    # which one — the random pick is deliberate behavior.
+    assert len(output.planned_runs) == 1
+    assert output.planned_runs[0].skill_name in seeded
 
 
 @pytest.mark.asyncio
@@ -174,38 +258,42 @@ async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
 async def test_lazy_seed_failure_does_not_abort_tick(ateam, aother_team):
     # If lazy seed fails for one team, the coordinator should still plan runs for
     # other teams and for skills that already exist on the failing team.
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=True)
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=aother_team, enabled=True)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=aother_team, enabled=True)
     # ateam already has a hand-authored skill — the seed call shouldn't even fire
     # for them (existing-rows short-circuit) but if it did and somehow raised,
     # we still want planning to succeed.
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-existing")
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.seed_canonical_skills",
+        "products.signals.backend.temporal.agentic.agent_coordinator.seed_canonical_skills",
         side_effect=RuntimeError("simulated seed failure"),
     ):
         env = ActivityEnvironment()
-        output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
     # ateam's existing skill is still plannable; aother_team has no skills and
     # the failed seed left it empty, so it contributes nothing — but the tick
     # didn't crash.
-    assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-existing" for p in output.planned_runs)
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-agent-existing" for p in output.planned_runs)
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_truncates_above_hard_cap(ateam):
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam, enabled=True)
-    # Exceed the cap.
-    for i in range(MAX_RUNS_PER_TICK + 5):
-        await database_sync_to_async(_create_skill)(ateam, f"signals-scout-{i:03d}")
+async def test_truncates_above_hard_cap(ateam, aother_team):
+    """The hard cap defends against a config explosion across many teams. Sampling-of-one
+    means the cap is now effectively per-team rather than per-skill, so we test it by
+    enabling more teams than the (lowered) cap and verifying truncation kicks in."""
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=aother_team, enabled=True)
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-alpha")
+    await database_sync_to_async(_create_skill)(aother_team, "signals-agent-beta")
 
-    env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
+    with patch("products.signals.backend.temporal.agentic.agent_coordinator.MAX_RUNS_PER_TICK", 1):
+        env = ActivityEnvironment()
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
 
-    assert len(output.planned_runs) == MAX_RUNS_PER_TICK
+    assert len(output.planned_runs) == 1
 
 
 # ── Workflow-level tests ────────────────────────────────────────────────────────
@@ -219,11 +307,11 @@ async def test_truncates_above_hard_cap(ateam):
 
 @pytest.mark.asyncio
 async def test_workflow_returns_zero_counts_when_no_planned_runs():
-    coordinator = SignalsScoutCoordinatorWorkflow()
+    coordinator = SignalsAgentCoordinatorWorkflow()
     fake_fetch_result = type("R", (), {"planned_runs": []})()
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+        "products.signals.backend.temporal.agentic.agent_coordinator.workflow.execute_activity",
         new_callable=AsyncMock,
         return_value=fake_fetch_result,
     ):
@@ -235,16 +323,16 @@ async def test_workflow_returns_zero_counts_when_no_planned_runs():
 @pytest.mark.asyncio
 async def test_workflow_dispatches_children_fire_and_forget():
     planned = [
-        PlannedRun(team_id=1, skill_name="signals-scout-a"),
-        PlannedRun(team_id=1, skill_name="signals-scout-b"),
-        PlannedRun(team_id=2, skill_name="signals-scout-c"),
+        PlannedRun(team_id=1, skill_name="signals-agent-a"),
+        PlannedRun(team_id=1, skill_name="signals-agent-b"),
+        PlannedRun(team_id=2, skill_name="signals-agent-c"),
     ]
     fake_fetch_result = type("R", (), {"planned_runs": planned})()
 
     # Second dispatch raises WorkflowAlreadyStartedError → counted as skipped, others as started.
     dispatch_outcomes: list[BaseException | None] = [
         None,
-        WorkflowAlreadyStartedError("dup", "signals-scout-run-1-signals-scout-b-tick-1-1"),
+        WorkflowAlreadyStartedError("dup", "signals-agent-run-1-signals-agent-b-tick-1-1"),
         None,
     ]
     dispatch_calls: list[tuple[int, str]] = []
@@ -257,22 +345,22 @@ async def test_workflow_dispatches_children_fire_and_forget():
             raise outcome
         return AsyncMock()
 
-    coordinator = SignalsScoutCoordinatorWorkflow()
+    coordinator = SignalsAgentCoordinatorWorkflow()
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            "products.signals.backend.temporal.agentic.agent_coordinator.workflow.execute_activity",
             new_callable=AsyncMock,
             return_value=fake_fetch_result,
         ),
         patch(
-            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            "products.signals.backend.temporal.agentic.agent_coordinator.workflow.info",
             return_value=type("Info", (), {"workflow_id": "tick-1"})(),
         ),
         patch(
-            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.logger",
+            "products.signals.backend.temporal.agentic.agent_coordinator.workflow.logger",
         ),
         patch(
-            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            "products.signals.backend.temporal.agentic.agent_coordinator.workflow.start_child_workflow",
             side_effect=fake_start_child,
         ),
     ):
@@ -283,7 +371,7 @@ async def test_workflow_dispatches_children_fire_and_forget():
     assert output.skipped_count == 1
     # All three planned runs were dispatched in order, even though one was a dedupe-skip.
     assert dispatch_calls == [
-        (1, "signals-scout-a"),
-        (1, "signals-scout-b"),
-        (2, "signals-scout-c"),
+        (1, "signals-agent-a"),
+        (1, "signals-agent-b"),
+        (2, "signals-agent-c"),
     ]
