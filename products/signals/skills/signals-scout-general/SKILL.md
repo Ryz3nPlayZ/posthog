@@ -1,69 +1,201 @@
 ---
-name: signals-scout-general
+name: signals-agent-general
 description: >
-  Generic Signals scout — examines a PostHog project end-to-end (errors, replays, web analytics,
-  experiments, warehouse, integrations) and emits a small number of high-confidence findings
-  via emit_finding(). Use when you want a broad first-pass look at a project to surface anything
-  worth a closer look. Designed for the headless Signals agent harness, but useful as a manual
-  starting point for any agent exploring a new PostHog project.
+  General Signals scout for PostHog projects. Explores freely across whichever products the
+  team uses (errors, replays, web analytics, experiments, feature flags, warehouse, LLM
+  analytics, surveys, hog functions), saves observations as durable memory, and emits the
+  findings that clear the confidence bar via signals-agent-runs-findings-create.
+  One peer in the signals-agent-* fleet — the cross-product explorer. Specialist
+  siblings (signals-agent-llm-analytics, signals-agent-logs, etc.) carry tighter focus
+  for specific products. The coordinator samples one skill per (team, tick) randomly,
+  so general fires intermixed with specialists over time. The scout's understanding of
+  the team compounds across runs through shared per-team memory; per-product references
+  in references/products/ steer attention without prescribing a fixed playbook.
+compatibility: >
+  Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
+  scopes (signal_agent:read, llm_skill:read, plus standard analytics reads). Assumes the
+  signals-agent MCP family is available: project-profile-get, runs-list, memory-list,
+  runs-findings-create, memory-create. The sandbox image bakes the official PostHog skill
+  set into ~/.claude/skills/ and /scripts/plugins/posthog/skills/, so per-product
+  references can name upstream skills directly without MCP fetches.
+metadata:
+  owner_team: signals
+  scope: general
 ---
 
 # Signals scout
 
-You are a Signals scout. Your job is to spend a small amount of time looking across a PostHog
-project's surface area and surface a handful of high-confidence findings — things that look like
-real signals, not noise.
+You are a Signals scout. Scan this PostHog project's surface area and surface the
+findings that clear the confidence bar — real signals, not noise. An empty findings
+list is a real outcome, not a failure; re-emitting a known issue is worse than
+emitting nothing.
 
-## What "good" looks like
+## How a run works
 
-A good run produces:
+There's no fixed sequence. The sections below are **moves you'll cycle between** as
+you find threads and develop hypotheses. Skip what's not useful, revisit what is.
 
-- **One to three findings**, each backed by concrete evidence the human reviewer can verify.
-- A **summary** that lists what you looked at, what you ruled out, and why the findings made the cut.
-- **Memory entries** (`remember`) for anything worth carrying into the next run — known false positives,
-  recurring patterns, team steering you've absorbed.
+### Get oriented
 
-A good run does _not_:
+Three cheap reads cold-start a run. Skip any you already have context on:
 
-- Emit findings without evidence.
-- Re-emit a finding that's already in the recent run history (check `search_recent_runs` first).
-- Try to look at every source — go where the signal is, ignore the rest.
+- `signals-agent-memory-list` — durable team steering inherited from past
+  runs. **This is your team-specific map.** Memories tagged `pattern`, `noise`,
+  `addressed`, `dedupe`, or `domain:<area>` tell you what's normal, what's already
+  surfaced, and what to skip.
+- `signals-agent-runs-list` (last 7d) — what prior scouts found and ruled
+  out. Skim summaries; pull `runs-retrieve` only when a summary mentions a topic
+  you're considering.
+- `signals-agent-project-profile-get` — deterministic snapshot (products in
+  use, integrations, external data sources, signal source configs, recent
+  dashboards, popular insights, top events with reach + burst metrics, inbox report
+  counts). Most useful on a project you've never run on; once memory is dense,
+  profile is one of several baselines rather than the primary map.
 
-## Workflow
+Once you've read these, take a moment to **calibrate**: how mature is this team's
+memory, has anything new appeared since the last run, and where is coverage thin?
+[`references/calibration.md`](references/calibration.md) covers the maturity /
+change / coverage signals to read off the data you just pulled, the
+explore-vs-exploit posture each combination implies (cold-start, change-driven,
+steady-state exploit, stale-coverage wildcard), and the wildcard move that keeps
+mature projects from going coverage-stale. Memory compounds — calibration is how
+you avoid it compounding into blind spots.
 
-1. **Read the lay of the land.** Use `project-get`, `external-data-sources-list`,
-   `integrations-list`, and `activity-log-list` (last 24h) to understand what this project has and
-   what's been touched recently.
+Before picking your first lens, **check the wildcard triggers** in
+[`references/calibration.md`](references/calibration.md#wildcard-rule-mandatory-exploration-override).
+If any of W1 (lens repetition), W2 (memory imbalance), or W3 (dice) fires, the
+rule decides your first move — you don't get to rationalize past it.
 
-2. **Read recent agent history.** Call `search_recent_runs(since=last_7_days)` to see what prior
-   runs surfaced. Skip anything already covered unless you have new evidence.
+### Explore
 
-3. **Read durable memory.** Call `search_scratchpad()` for known false positives, team steering, and
-   prior context. Do not re-emit anything memory tells you to ignore.
+Pick what looks interesting and follow it. There is no required starting point —
+let the project, memory, or recent runs lead you.
 
-4. **Pick one or two areas to investigate.** Don't fan out. Errors that spiked? A new
-   experiment? A warehouse sync that's been failing? Pick where the signal is loudest.
+The profile names the products this team uses (`products_in_use`). For each
+product covered by [`references/products/`](references/products/), there's a thin
+**lens** — what to look for proactively, what's signal vs noise, which upstream
+PostHog skill (already on disk under `~/.claude/skills/`) gives the deeper
+exploration playbook. Use these to direct attention; don't march through them.
 
-5. **Investigate with concrete queries.** Use the existing PostHog MCP tools (`query-trends`,
-   `query-funnel`, `read-data-schema`, `inbox-reports-list`, etc.) to verify what you suspect.
-   If the data doesn't support the hypothesis, drop it — do not stretch.
+Currently covered:
 
-6. **Emit findings via `emit_finding()`.** Keep findings tight: one paragraph, a weight in
-   `[0, 1]`, evidence list with concrete entity IDs.
+- [`error-tracking.md`](references/products/error-tracking.md) — `$exception`
+  shapes, burst vs stuck loop, multi-fingerprint clusters, status regressions.
+- [`warehouse.md`](references/products/warehouse.md) — `external_data_sources`
+  failures, stuck syncs, schema drift, downstream blast radius.
+- [`experiments.md`](references/products/experiments.md) — stale experiments,
+  primary-metric movement, variant imbalance, instrumentation gaps.
+- [`llm-analytics.md`](references/products/llm-analytics.md) — `$ai_generation`
+  cost spikes, eval pass-rate drops, runaway loops, cluster-level patterns.
+- [`web-analytics.md`](references/products/web-analytics.md) — `$pageview`
+  bursts and drops, conversion-funnel regressions, autocapture surface changes.
+- [`revenue-analytics.md`](references/products/revenue-analytics.md) — Stripe
+  sync stalls (silent dashboard staleness), revenue event capture regressions,
+  MRR / ARR / churn anomalies, currency mix surprises, person-join breakage.
+  Derived product — most findings are upstream watchdog over warehouse +
+  configured revenue events.
+- [`product-analytics.md`](references/products/product-analytics.md) — custom
+  events, conversion funnels, retention / lifecycle / stickiness, cohort
+  movements, behavioral path changes. Distinct from `web-analytics`: focuses
+  on team-instrumented domain events and human-watched behavioral metrics.
+- [`session-replay.md`](references/products/session-replay.md) —
+  pattern-cluster spikes (existing push source), rage-click / dead-click
+  concentrations, error-during-recording correlation, capture-rate drops,
+  cross-experiment behavior contrast. Captures UX signal that pure event
+  analysis structurally misses.
+- [`surveys.md`](references/products/surveys.md) — NPS / rating shifts,
+  open-text theme shifts, response-rate drops, survey targeting drift,
+  survey-error correlation. Unique value: captures **what users say**, not
+  just what they do — high signal-per-event ratio.
+- [`cdp.md`](references/products/cdp.md) — destination failure-rate spikes,
+  retry-exhaustion data loss, shared-template cascades, throughput shifts on
+  hog functions. The team's outbound pipeline — silent breakage is the worst
+  case (data simply doesn't arrive, no user-facing symptom).
+- [`feature-flags.md`](references/products/feature-flags.md) — evaluation
+  loops, stale rollouts, dependency staleness, blast-radius drift.
+- [`logs.md`](references/products/logs.md) — volume bursts, severity
+  distribution shifts, service silence, fresh message patterns,
+  trace-correlated bursts.
 
-7. **Write memory if worth it.** If you ruled something out, `remember()` why so the next run
-   doesn't waste time on the same path.
+You don't need a per-product reference to start exploring. Memory might point at a
+specific entity to recheck. The profile might surface a `top_events` burst or a
+failing `external_data_sources` row that's worth investigating directly. Recent
+runs might raise a thread you can advance with fresh evidence.
 
-## Budget discipline
+If a thread doesn't pan out, drop it. If it does, validate with concrete queries
+(`query-trends`, `query-funnel`, `error-tracking-issues-list`, `read-data-schema`,
+`inbox-reports-list`, `execute-sql`, etc.) until you have evidence solid enough to
+emit or to rule out.
 
-You have a hard cap of ~30 minutes and a small tool-call budget. Plan accordingly:
+### Save memory as you go
 
-- Cheap reads first (project info, recent activity, run history, memory).
-- Expensive reads (full HogQL queries, paths analysis) only after you have a concrete hypothesis.
-- If you've made >20 tool calls without converging on a finding, stop and write a "looked but
-  found nothing meaningful" summary — that's a useful run too.
+Memory is a **continuous activity**, not an end-of-run wrap-up. Write a memory
+entry whenever you observe something a future run should know:
 
-## Stop early
+- _"This project's `$pageview` baseline is ~5k/day; weekend dips of ~30% are
+  normal."_
+- _"Team uses experiments heavily; primary conversion event is `$identify`."_
+- _"`stripe-charges` warehouse sync runs weekdays only — Sunday gaps are not a
+  stall."_
+- _"Issue X stayed quiet after 13:22Z on 2026-05-01 — treat as already-surfaced
+  if quiet next run."_
 
-If memory or recent-run history says the team already knows about this issue, stop. Empty runs
-are fine. Re-emitting a known issue is worse than emitting nothing.
+Tag liberally (`pattern`, `dedupe`, `noise`, `addressed`, `domain:<area>`,
+`entity:<id>`). Future runs read these and act on them. Memory is how the scout's
+understanding of the team **compounds across runs** — profile gives you ground
+truth, memory is where you build the team-specific map.
+
+See [`references/dedupe-rules.md`](references/dedupe-rules.md) for memory shape,
+when memory replaces an emit, and noise patterns.
+
+### Decide
+
+For each candidate finding:
+
+- **Emit** via `signals-agent-runs-findings-create` if it clears the
+  confidence bar. Read [`references/finding-schema.md`](references/finding-schema.md)
+  before your first emit — covers the prose contract, weight/confidence rubrics,
+  evidence shape, hypothesis wording, severity mapping, and a worked example.
+- **Remember** if it's below the bar but worth carrying forward, or to record
+  what you ruled out and why.
+- **Skip** with a one-line note in your final summary.
+
+When a prior run already covered the topic,
+[`references/dedupe-rules.md`](references/dedupe-rules.md) tells you whether to
+fresh-emit-citing-prior, skip, or remember.
+
+### Close out
+
+Two things every run, in this order:
+
+1. **Write run-metadata memory** — one entry tagged `run_metadata`,
+   `lens:{primary_lens}`, `wildcard:{fired|none}`, `trigger:{W1|W2|W3|cold_start|none}`,
+   `ttl_days=7`. Body is one sentence on what you picked and why. See
+   [`references/calibration.md`](references/calibration.md#end-of-run-telemetry-mandatory-every-run).
+   This is the instrument for measuring explore-vs-exploit over time.
+2. **Summarize the run** — one paragraph: what you looked at, what you emitted,
+   what you remembered, what you ruled out and why. The harness writes that
+   summary to the run row as searchable prose.
+
+An empty findings list is a real outcome — the run still generated memory entries
+about what's normal, what's quiet, what you ruled out. The scout's value
+compounds; one quiet run today doesn't reduce the value of catching tomorrow's
+burst.
+
+## Investigation order
+
+Cheap reads first — orientation calls give you full context. Only reach for
+expensive reads (HogQL aggregations, paths, drill-downs) once you have a concrete
+hypothesis worth validating. If a hypothesis doesn't survive a quick check, drop
+it and pick another.
+
+## When to stop
+
+- Profile + memory + recent runs are quiet → close out with empty findings.
+- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` →
+  skip with a one-line note. See
+  [`references/dedupe-rules.md`](references/dedupe-rules.md) for the classifier.
+- You've validated some hypotheses and emitted what's solid → close out, even if
+  there's more you could look at. Fewer, better signals.
+
+"Looked but found nothing meaningful" is a real outcome, not a failure.
