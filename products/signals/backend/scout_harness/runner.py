@@ -15,6 +15,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -314,19 +315,27 @@ def _has_running_run(*, team_id: int, config_id: str, skill_name: str) -> bool:
     )
 
 
-# Stale rows past this multiple of their max_runtime_s budget are reconciled to FAILED.
-# 2x is conservative: a run that legitimately runs over budget by 2x is so rare that we
-# accept the rare false positive in exchange for never blocking fresh runs indefinitely.
+# Stale rows past this multiple of `WORKFLOW_HARD_CEILING_S` are reconciled to FAILED.
+# 2x is conservative: the workflow's `start_to_close_timeout` is exactly
+# `WORKFLOW_HARD_CEILING_S`, so an activity that completed normally — success, failure,
+# or Temporal-side timeout — would never be running longer than that. 2x is the slack
+# we leave for the row's own update path racing the timeout signal; anything older is
+# orphaned beyond reasonable doubt.
 _STALE_RUN_MULTIPLIER = 2
 
 
 def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
-    """Reconcile RUNNING rows older than `_STALE_RUN_MULTIPLIER * max_runtime_s` to FAILED.
+    """Reconcile RUNNING rows older than `_STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S`
+    to FAILED.
 
     Catches rows orphaned by worker shutdown, sandbox crash, or async cancellation that
-    bypassed the activity's cleanup path. The row's own recorded `max_runtime_s` budget
-    is the staleness threshold base — a row started with a 1800s budget is treated as
-    stale after 3600s of wall-clock RUNNING time.
+    bypassed the activity's cleanup path. The threshold is anchored to the workflow's
+    actual hard timeout (`DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`), not the per-run
+    `metadata.limits.max_runtime_s` — that override only governs the harness's in-activity
+    poll loop, while the Temporal `start_to_close_timeout` is fixed. Anchoring to the
+    workflow ceiling keeps the self-heal time uniform across teams; a team setting
+    `max_runtime_s = 7200s` doesn't get hours of false-blocking from an orphan that
+    Temporal would have killed at ~31 minutes anyway.
 
     Idempotent: safe to call from any number of concurrent coordinator activities.
     """
@@ -336,9 +345,8 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
         status=SignalAgentRun.Status.RUNNING,
     ).only("id", "started_at", "metadata")
     now = timezone.now()
+    threshold_s = _STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S
     for run in candidates:
-        budget_max_s = ((run.metadata or {}).get("limits", {}) or {}).get("max_runtime_s") or DEFAULT_MAX_RUNTIME_S
-        threshold_s = _STALE_RUN_MULTIPLIER * budget_max_s
         age_s = (now - run.started_at).total_seconds()
         if age_s <= threshold_s:
             continue
@@ -347,7 +355,7 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
             completed_at=now,
             summary=(
                 f"Run row auto-healed: status=RUNNING for {age_s:.0f}s "
-                f"(threshold {threshold_s}s = {_STALE_RUN_MULTIPLIER}x max_runtime_s). "
+                f"(threshold {threshold_s}s = {_STALE_RUN_MULTIPLIER}x WORKFLOW_HARD_CEILING_S). "
                 f"Worker / sandbox likely died without the cleanup path running."
             ),
         )

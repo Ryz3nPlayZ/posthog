@@ -16,6 +16,7 @@ function the coordinator and runner call lazily — this command is just the imp
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from posthog.models.team.team import Team
 
@@ -120,8 +121,6 @@ class Command(BaseCommand):
     def _dry_run(self, teams: list[Team]) -> None:
         # Run inside a transaction we always roll back, so the output reflects what *would*
         # happen if we ran for real. Cheaper than re-implementing the decision branches here.
-        from django.db import transaction
-
         self.stdout.write(self.style.WARNING("[dry-run] no changes will be persisted"))
         with transaction.atomic():
             for team in teams:

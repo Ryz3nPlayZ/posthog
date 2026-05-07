@@ -419,7 +419,12 @@ def sync_canonical_skills(team: Team) -> SyncResult:
             continue
 
         if live_hash == canonical_hash:
-            # Already at the latest canonical content. No-op.
+            # Already at the latest canonical content. No-op — we deliberately do *not*
+            # refresh `metadata.canonical_hash` here. If an operator manually deleted
+            # `canonical_hash` to force a re-evaluate, the next tick hits the `stored_hash
+            # is None` branch and re-baselines via `_backfill_canonical_hash`; that's a
+            # one-tick delay even when content already matches canonical, but the
+            # alternative (writing every tick) churns metadata for no behavioral change.
             continue
 
         if live_hash != stored_hash:

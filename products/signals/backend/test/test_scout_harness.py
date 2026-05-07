@@ -414,9 +414,14 @@ async def test_cancelled_run_persists_failure_and_re_raises(ateam, aerrors_skill
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_self_heal_unblocks_stale_running_row(ateam, aerrors_skill):
-    """A RUNNING row whose age exceeds 2x its max_runtime_s budget must be auto-healed
+    """A RUNNING row whose age exceeds 2x `WORKFLOW_HARD_CEILING_S` must be auto-healed
     before the skip-if-running guard fires, so a fresh run can spawn instead of being
     blocked indefinitely by an orphaned row from a worker shutdown / sandbox crash.
+
+    The threshold is anchored to the workflow's hard ceiling (the Temporal
+    `start_to_close_timeout` the activity is actually subject to), not the per-run
+    `metadata.limits.max_runtime_s` — see `_self_heal_stale_runs` and the dedicated
+    test below for why.
     """
     config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
     stale = await database_sync_to_async(SignalAgentRun.objects.create)(
@@ -427,7 +432,7 @@ async def test_self_heal_unblocks_stale_running_row(ateam, aerrors_skill):
         status=SignalAgentRun.Status.RUNNING,
         metadata={"limits": {"max_runtime_s": 1800}},
     )
-    # Age the row past 2x its 1800s budget.
+    # Age the row past 2x WORKFLOW_HARD_CEILING_S (= 2 * 1860s = 3720s).
     await database_sync_to_async(SignalAgentRun.objects.filter(id=stale.id).update)(
         started_at=datetime.now(UTC) - timedelta(seconds=4000),
     )
@@ -479,6 +484,47 @@ async def test_self_heal_leaves_recent_running_row_alone(ateam, aerrors_skill):
     untouched = await database_sync_to_async(SignalAgentRun.objects.get)(id=recent.id)
     assert untouched.status == SignalAgentRun.Status.RUNNING
     assert untouched.completed_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_self_heal_threshold_is_workflow_ceiling_not_team_runtime_override(ateam, aerrors_skill):
+    """A team with a generous `max_runtime_s` override must not get hours of false-blocking
+    from an orphaned row. The workflow's `start_to_close_timeout` is fixed at
+    `WORKFLOW_HARD_CEILING_S` regardless of the override, so the self-heal threshold is
+    anchored to that ceiling — orphans get reaped at 2x the workflow ceiling, not 2x the
+    inflated budget recorded on the row.
+    """
+    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
+    # Team-recorded budget of 7200s (well above the workflow ceiling of 1860s). Pre-fix,
+    # this would push the staleness threshold to 14400s; post-fix, it stays at 3720s.
+    stale = await database_sync_to_async(SignalAgentRun.objects.create)(
+        team=ateam,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"limits": {"max_runtime_s": 7200}},
+    )
+    # Age past 2x WORKFLOW_HARD_CEILING_S (3720s) but well below 2x the team's recorded
+    # 7200s budget (14400s). Old logic would skip the heal; new logic must reap.
+    await database_sync_to_async(SignalAgentRun.objects.filter(id=stale.id).update)(
+        started_at=datetime.now(UTC) - timedelta(seconds=4000),
+    )
+
+    async def fake_spawn(**_kwargs):
+        return "fresh run completed"
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    # Stale row was healed despite the inflated team budget.
+    healed = await database_sync_to_async(SignalAgentRun.objects.get)(id=stale.id)
+    assert healed.status == SignalAgentRun.Status.FAILED
+    assert "WORKFLOW_HARD_CEILING_S" in healed.summary
+    # And a fresh run was allowed to spawn.
+    assert result.status == SignalAgentRun.Status.COMPLETED
+    assert result.run_id is not None and result.run_id != str(stale.id)
 
 
 @pytest.mark.asyncio
