@@ -115,6 +115,21 @@ export interface SignalAgentRunSummaryApi {
     summary: string
     /** Number of finding entries persisted on the run row. */
     findings_count: number
+    /**
+     * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
+     * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+     * @nullable
+     */
+    task_run_id?: string | null
+    /**
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+     * @nullable
+     */
+    task_url?: string | null
 }
 
 export interface PaginatedSignalAgentRunSummaryListApi {
@@ -136,7 +151,7 @@ export type SignalAgentRunDetailApiHypothesesConsideredItem = { [key: string]: u
 export type SignalAgentRunDetailApiRunMetrics = { [key: string]: number }
 
 /**
- * Run metadata snapshot (limits, skill id, allowed_tools resolution).
+ * Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).
  */
 export type SignalAgentRunDetailApiMetadata = { [key: string]: unknown }
 
@@ -167,8 +182,23 @@ export interface SignalAgentRunDetailApi {
     hypotheses_considered: SignalAgentRunDetailApiHypothesesConsideredItem[]
     /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
     run_metrics: SignalAgentRunDetailApiRunMetrics
-    /** Run metadata snapshot (limits, skill id, allowed_tools resolution). */
+    /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
     metadata: SignalAgentRunDetailApiMetadata
+    /**
+     * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
+     * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+     * @nullable
+     */
+    task_run_id?: string | null
+    /**
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+     * @nullable
+     */
+    task_url?: string | null
 }
 
 /**
