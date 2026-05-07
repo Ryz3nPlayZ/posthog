@@ -2,15 +2,18 @@
 
 Two distinct skill families live in this directory:
 
-1. **User-facing PHS skills** — `signals/`, `inbox-exploration/`. These are loaded by
-   humans (and human-driven agents) on demand via `/phs <name>`. They teach a caller
-   how to query, browse, and reason about signals data. They are not part of the
-   automated agent path.
-2. **Scout fleet** — `signals-agent-*/`. These are the SKILL.mds the headless Signals
-   agent loads into its system prompt at runtime. The harness samples one (or more) of
-   them per (team, tick) and runs the corresponding scout. They are not designed to be
-   `/phs`-invoked by humans; the prompt and tool affordances assume they are running
-   inside the harness.
+1. **Official PostHog skills** — `signals/`, `inbox-exploration/`. First-party PostHog
+   skills published via `products/posthog_ai/dist/skills/` and loaded by users through
+   the PostHog MCP. They teach a caller how to query, browse, and reason about signals
+   data. They are not part of the automated agent path — humans (and human-driven
+   agents) reach for them on demand.
+2. **Scout fleet** — `signals-agent-*/`. Canonical default skills that the headless
+   Signals agent loads into its system prompt at runtime. These are also the first
+   example of PostHog shipping templated skills _into a user's PostHog Skills Store_:
+   `lazy_seed` mirrors them onto each agent-enabled team's `LLMSkill` rows on the first
+   coordinator tick, where users can then edit or override them per-team. They are not
+   designed to be invoked by humans directly; the prompt and tool affordances assume
+   they are running inside the harness.
 
 ## Scout fleet convention (`signals-agent-*`)
 
@@ -86,14 +89,16 @@ versions or link back to the generalist's.
 
 ## When editing skills in this directory
 
-- **User-facing skills (`signals/`, `inbox-exploration/`).** These are PHS-store
-  skills. Update them as you would any team skill — version bumps land in the
-  store via `llma-skill-update`. They are not auto-synced from disk.
-- **Scout skills (`signals-agent-*/`).** Disk is the source of truth. Merging a
-  change to `SKILL.md` here propagates to teams on the next coordinator tick (or
-  immediately via `python manage.py sync_signals_agent_skills --all-enabled`).
-  Teams that have manually edited a row are treated as "diverged" and left alone —
-  the sync logs them so you can decide whether to nudge those teams to reset.
+- **Official skills (`signals/`, `inbox-exploration/`).** Disk in this directory is
+  the source of truth. Changes get published to `products/posthog_ai/dist/skills/`
+  for distribution as part of the official PostHog skill set; they are not
+  auto-synced onto teams' `LLMSkill` rows.
+- **Scout skills (`signals-agent-*/`).** Disk in this directory is the source of
+  truth, and `lazy_seed` mirrors changes onto each agent-enabled team's `LLMSkill`
+  rows on the next coordinator tick (or immediately via
+  `python manage.py sync_signals_agent_skills --all-enabled`). Teams that have
+  manually edited a row are treated as "diverged" and left alone — the sync logs
+  them so you can decide whether to nudge those teams to reset.
 - **If you change the scout fleet shape (add a new specialist, rename, or change
   the SKILL.md schema), update this file.**
 
@@ -103,4 +108,3 @@ versions or link back to the generalist's.
 - Coordinator + sampling rules — `../backend/temporal/agentic/agent_coordinator.py`
 - Canonical sync mechanics + manual command —
   `../backend/management/AGENTS.md` (Canonical skill sync section)
-- Live navigator skill (in PHS, not in-repo) — `/phs signals-agent`

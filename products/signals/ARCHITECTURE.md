@@ -1175,8 +1175,8 @@ products/signals/
 │       └── types.py                 # Shared dataclasses + signal rendering helpers
 ├── skills/                          # Signals skills — see skills/AGENTS.md
 │   ├── AGENTS.md
-│   ├── signals/                     # User-facing PHS skill: querying signals data
-│   ├── inbox-exploration/           # User-facing PHS skill: browsing the inbox
+│   ├── signals/                     # Official PostHog skill (published via posthog_ai/dist): querying signals data
+│   ├── inbox-exploration/           # Official PostHog skill (published via posthog_ai/dist): browsing the inbox
 │   ├── signals-agent-general/       # Scout fleet: cross-product generalist (12 lenses + 4 references)
 │   ├── signals-agent-llm-analytics/ # Scout fleet: LLM analytics anomaly watcher
 │   ├── signals-agent-logs/          # Scout fleet: logs anomaly watcher
