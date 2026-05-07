@@ -79,6 +79,13 @@ one sandbox session → zero or more emitted signals.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; `enabled_skill_names` on the
   team's `SignalAgentConfig` narrows the candidate pool the coordinator samples from.
+- `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
+  sandbox. Both UUIDs are captured into `SignalAgentRun.metadata` (`task_id`,
+  `task_run_id`) by `_record_task_linkage` immediately after the session returns
+  — this powers the `task_url` deep-link surfaced on the run serializers
+  (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key
+  for the future LLM-analytics token / cost roll-up. `_finalize_failed` reads-modifies-writes
+  metadata so the linkage survives to the failure row a debugger needs to land on.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_agent"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path
