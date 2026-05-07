@@ -639,6 +639,7 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-alerting',
                 'replay-video-based-summarization',
+                'signals-agent',
                 'tracing',
                 'visual-review',
                 'mcp-feedback-tool',

@@ -14,10 +14,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.llm_analytics.backend.models.skills import LLMSkill
-from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
+from products.signals.backend.agent_harness.feature_flags import team_passes_rollout_flag
+from products.signals.backend.agent_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
+from products.signals.backend.models import SignalAgentConfig
+from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentInput, RunSignalsAgentWorkflow
 
 logger = structlog.get_logger(__name__)
 
@@ -66,29 +67,28 @@ class CoordinatorWorkflowOutput:
 
 
 @activity.defn
-async def fetch_enabled_signals_scout_runs_activity(
+async def fetch_enabled_signals_agent_runs_activity(
     _input: FetchEnabledRunsInput,
 ) -> FetchEnabledRunsOutput:
     """Resolve the set of (team, skill) runs to trigger this tick.
 
-    Reads enabled `SignalScoutConfig` rows; for each one, expands to the configured
-    skill list, falling back to a glob over the team's `signals-scout-*` skills when
+    Reads enabled `SignalAgentConfig` rows; for each one, expands to the configured
+    skill list, falling back to a glob over the team's `signals-agent-*` skills when
     `enabled_skill_names` is null. Skips configs where the resulting skill list is empty.
     """
     async with Heartbeater():
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
-    logger.info("signals_scout coordinator: planned runs", count=len(planned))
+    logger.info("signals_agent coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
 
 def _collect_planned_runs() -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
-    # TODO(phase 4): gate behind the `signals-scout-dogfood` feature flag once it
-    # exists. For now the `enabled=False` default on `SignalScoutConfig` is the gate.
     # `.unscoped()` is intentional: the coordinator scans every team's config to plan
     # cross-team runs. The default `.objects` manager is fail-closed (TeamScopedRootMixin)
     # and would raise without an active team_scope — but this is the one caller for
-    # which "every team" is the correct answer, not a footgun.
+    # which "every team" is the correct answer, not a footgun. The per-team rollout flag
+    # gate below provides the actual rollout narrowing.
     configs = list(
         SignalScoutConfig.objects.unscoped().filter(enabled=True).select_related("team").order_by("team__id")
     )
@@ -96,7 +96,19 @@ def _collect_planned_runs() -> list[PlannedRun]:
     for config in configs:
         team = config.team
         team_id = team.id
-        # Sync canonical signals-scout-* skills before we resolve the skill list.
+        # Per-team rollout gate (`signals-agent` feature flag). Layered above the static
+        # `enabled=True` filter above: a team must be both flagged and configured-enabled
+        # to contribute runs. This lets us narrow the rollout via the flag dashboard
+        # without DB writes — single-team allowlist on the flag is faster + safer than
+        # UPDATEing every `SignalAgentConfig` row, and a flag flip-off cleanly drains
+        # within one tick. Eval failure fails closed (see `feature_flags.py`).
+        if not team_passes_rollout_flag(team):
+            logger.info(
+                "signals_agent coordinator: team gated by rollout flag",
+                team_id=team_id,
+            )
+            continue
+        # Sync canonical signals-agent-* skills before we resolve the skill list.
         # Without this, a brand-new team with `enabled_skill_names=None` and zero
         # LLMSkill rows would produce an empty planned set, no child runs would fan
         # out, and the runner-level sync would never be reached — the cadence path
@@ -111,7 +123,7 @@ def _collect_planned_runs() -> list[PlannedRun]:
             sync_canonical_skills(team, prune=True)
         except Exception:
             logger.exception(
-                "signals_scout coordinator: canonical skill sync failed for team; continuing",
+                "signals_agent coordinator: canonical skill sync failed for team; continuing",
                 team_id=team_id,
             )
         skill_names = _resolve_skill_names_for_config(config, team_id=team_id)
@@ -140,11 +152,11 @@ def _collect_planned_runs() -> list[PlannedRun]:
     return planned
 
 
-def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) -> list[str]:
+def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) -> list[str]:
     """Return the (length-0 to N) list of skill names to run for this team's config.
 
     The set of *candidate* skills comes from:
-      - `enabled_skill_names = None` → all `signals-scout-*` skills on the team.
+      - `enabled_skill_names = None` → all `signals-agent-*` skills on the team.
       - `enabled_skill_names = [list]` → the list verbatim (deduped while preserving
         order), intersected with the skills that actually exist on the team so the
         activity output is grounded in reality.
@@ -155,7 +167,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
     each candidate gets an equal share of run slots over time without firing them all
     every tick. Higher `runs_per_tick` lets a single team cover more lenses per tick —
     useful for dogfood teams where the daily search-space matters more than per-tick
-    worker compactness. New `signals-scout-foo` skills authored by users automatically
+    worker compactness. New `signals-agent-foo` skills authored by users automatically
     join the rotation without coordinator-side wiring.
 
     Edge cases (handled in-place — no exceptions):
@@ -166,7 +178,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
         and `runs_per_tick=10` runs both, no error.
       - `len(candidates) == 0` → returns `[]`. Same as before — nothing to sample from.
 
-    Inefficiency on a team where a specialist is irrelevant (e.g. `signals-scout-llm-analytics`
+    Inefficiency on a team where a specialist is irrelevant (e.g. `signals-agent-llm-analytics`
     on a project with no LLM activity) is handled at the agent layer via memory: the
     specialist's first run writes "no LLM activity here, close out fast" and future runs
     short-circuit cold via the memory read.
@@ -174,7 +186,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
     available = set(
         LLMSkill.objects.filter(
             team_id=team_id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+            name__startswith=SIGNALS_AGENT_SKILL_PREFIX,
             is_latest=True,
             deleted=False,
         ).values_list("name", flat=True)
@@ -189,7 +201,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
         missing = [name for name in requested if name not in available]
         if missing:
             logger.warning(
-                "signals_scout coordinator: configured skill names not found on team",
+                "signals_agent coordinator: configured skill names not found on team",
                 team_id=team_id,
                 missing=missing,
             )
@@ -201,7 +213,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
     if sample_size <= 0:
         # Soft-pause: team is enabled but explicitly opted out of this tick.
         logger.info(
-            "signals_scout coordinator: runs_per_tick=0, skipping team this tick",
+            "signals_agent coordinator: runs_per_tick=0, skipping team this tick",
             team_id=team_id,
             candidate_count=len(candidates),
         )
@@ -211,7 +223,7 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
     # `random.sample` is uniform without replacement — no duplicate skills per tick.
     chosen = sorted(random.sample(candidates, k=sample_size))
     logger.info(
-        "signals_scout coordinator: sampled skills from candidate set",
+        "signals_agent coordinator: sampled skills from candidate set",
         team_id=team_id,
         chosen=chosen,
         sample_size=sample_size,
@@ -221,8 +233,8 @@ def _resolve_skill_names_for_config(config: SignalScoutConfig, *, team_id: int) 
     return chosen
 
 
-@workflow.defn(name="run-signals-scout-coordinator")
-class SignalsScoutCoordinatorWorkflow:
+@workflow.defn(name="run-signals-agent-coordinator")
+class SignalsAgentCoordinatorWorkflow:
     """Hourly coordinator: scans enabled configs, fans out per-(team, skill) child runs.
 
     Dispatch is fire-and-forget: each child is started with `ParentClosePolicy.ABANDON`
@@ -247,7 +259,7 @@ class SignalsScoutCoordinatorWorkflow:
     @workflow.run
     async def run(self, _input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
         fetch_result = await workflow.execute_activity(
-            fetch_enabled_signals_scout_runs_activity,
+            fetch_enabled_signals_agent_runs_activity,
             FetchEnabledRunsInput(),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -285,8 +297,8 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
     child_id = _child_workflow_id(planned, tick_id, idx)
     try:
         await workflow.start_child_workflow(
-            RunSignalsScoutWorkflow.run,
-            RunSignalsScoutInput(
+            RunSignalsAgentWorkflow.run,
+            RunSignalsAgentInput(
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
             ),
@@ -297,7 +309,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
         return True
     except WorkflowAlreadyStartedError:
         workflow.logger.info(
-            "signals_scout coordinator: child already running, skipping",
+            "signals_agent coordinator: child already running, skipping",
             team_id=planned.team_id,
             skill_name=planned.skill_name,
             child_id=child_id,
@@ -310,4 +322,4 @@ def _child_workflow_id(planned: PlannedRun, tick_id: str, idx: int) -> str:
     # somehow ends up with the same skill twice in a tick (defense-in-depth — the
     # planning step already dedupes via sorted unique).
     safe_skill = planned.skill_name.replace(" ", "_")[:60]
-    return f"signals-scout-run-{planned.team_id}-{safe_skill}-{tick_id}-{idx}"
+    return f"signals-agent-run-{planned.team_id}-{safe_skill}-{tick_id}-{idx}"

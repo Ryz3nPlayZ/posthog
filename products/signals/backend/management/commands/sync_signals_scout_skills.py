@@ -8,7 +8,7 @@ Use cases:
 - You shipped a quick revert and want every team back to the fixed canonical immediately.
 - You're onboarding a new team and want the canonical fleet seeded synchronously.
 
-Reads the canonical fleet from `products/signals/skills/signals-scout-*/` (whatever the
+Reads the canonical fleet from `products/signals/skills/signals-agent-*/` (whatever the
 worker process sees on disk), then calls `sync_canonical_skills(team)` per team. Same
 function the coordinator and runner call lazily — this command is just the impatient path.
 """
@@ -20,12 +20,13 @@ from django.db import transaction
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.agent_harness.feature_flags import team_passes_rollout_flag
+from products.signals.backend.agent_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.models import SignalAgentConfig
 
 
 class Command(BaseCommand):
-    help = "Sync canonical signals-scout-* skills from disk to teams' LLMSkill rows."
+    help = "Sync canonical signals-agent-* skills from disk to teams' LLMSkill rows."
 
     def add_arguments(self, parser):
         # `--team-id` and `--all-enabled` are mutually exclusive; one is required. Plain
@@ -39,7 +40,7 @@ class Command(BaseCommand):
             "--all-enabled",
             action="store_true",
             help=(
-                "Sync every team that has an enabled SignalScoutConfig. Use this after "
+                "Sync every team that has an enabled SignalAgentConfig. Use this after "
                 "merging a SKILL.md change to fan it out to all dogfood teams."
             ),
         )
@@ -48,11 +49,24 @@ class Command(BaseCommand):
             action="store_true",
             help="Print what would change without writing to the DB.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help=(
+                "Skip the per-team `signals-agent` feature-flag check. By default this "
+                "command honors the same rollout gate as the Temporal coordinator — a "
+                "team that is configured-enabled but flag-gated off does not get its "
+                "canonical skills updated, so a flag flip-off cleanly drains. Use --force "
+                "for emergency reverts (e.g. pushing a fixed canonical to every team "
+                "regardless of rollout state) and for local dev/testing."
+            ),
+        )
 
     def handle(self, *args, **options):
         team_id: int | None = options.get("team_id")
         all_enabled: bool = options.get("all_enabled", False)
         dry_run: bool = options.get("dry_run", False)
+        force: bool = options.get("force", False)
 
         if not team_id and not all_enabled:
             raise CommandError("Pass either --team-id <id> or --all-enabled")
@@ -63,6 +77,25 @@ class Command(BaseCommand):
         if not teams:
             self.stdout.write(self.style.WARNING("No teams matched the selection — nothing to sync."))
             return
+
+        if not force:
+            # Filter by the rollout flag so a flag flip-off propagates here too. We log
+            # the gated teams individually so an operator can see which teams the flag
+            # is currently excluding without having to query the dashboard.
+            allowed: list[Team] = []
+            for team in teams:
+                if team_passes_rollout_flag(team):
+                    allowed.append(team)
+                else:
+                    self.stdout.write(f"team {team.id}: skipped — gated by signals-agent rollout flag")
+            if not allowed:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "All matched teams are gated off by the signals-agent rollout flag. Use --force to bypass."
+                    )
+                )
+                return
+            teams = allowed
 
         if dry_run:
             # Dry-run is a transaction-rolled-back sync so we get the real per-team report
