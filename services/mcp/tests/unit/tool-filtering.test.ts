@@ -635,11 +635,16 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
+        // signals-agent-* tools no longer carry a per-tool flag annotation — the
+        // coordinator gate (`team_passes_rollout_flag`) is the rollout boundary;
+        // the per-tool flag would have been duplicate defense-in-depth, plus
+        // making per-MCP-session flag eval reliable enough to support it
+        // requires plumbing personalApiKey through to posthog-node which is
+        // unjustified weight for a temporary rollout gate.
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-alerting',
                 'replay-video-based-summarization',
-                'signals-agent',
                 'tracing',
                 'visual-review',
                 'mcp-feedback-tool',
@@ -647,7 +652,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
             ])
         )
-        expect(flags).toHaveLength(7)
+        expect(flags).toHaveLength(5)
     })
 
     // Test the filtering logic with a direct unit test approach using
