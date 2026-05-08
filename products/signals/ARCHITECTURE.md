@@ -1200,6 +1200,7 @@ products/signals/
 │   ├── signals-agent-logs/          # Scout fleet: logs anomaly watcher
 │   ├── signals-agent-error-tracking/         # Scout fleet: error tracking anomaly watcher
 │   ├── signals-agent-revenue-analytics/      # Scout fleet: revenue anomaly watcher
+│   ├── signals-agent-surveys/                # Scout fleet: surveys anomaly + theme-aggregation watcher
 │   └── signals-agent-observability-gaps/     # Scout fleet: structural-gap watcher (P3 recommendations)
 └── frontend/                        # Frontend components (not covered here)
 ```
