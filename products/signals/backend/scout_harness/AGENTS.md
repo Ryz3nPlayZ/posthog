@@ -51,9 +51,18 @@ management command (see `../management/AGENTS.md`).
     cross-skill awareness.
 - `profile/`
   - `builders.py` — deterministic builders that compute the inventory payload for
-    `SignalProjectProfile`. Populates 10 inventory sections (events, properties,
-    cohorts, feature flags, experiments, surveys, dashboards, insights, data warehouse
-    sources, integrations).
+    `SignalProjectProfile`. Sections fall into three layers: capability / configured
+    (sticky — `products_in_use`, `integrations`, `external_data_sources`,
+    `signal_source_configs`, …), aggregated recency (`recent_activity` — per-scope
+    counts off the activity log, cross-cutting orientation across every entity type),
+    and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
+    `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
+    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`).
+    Per-entity sections are deliberately light (counts + 5 most-recent items with
+    name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
+    See the module docstring at `profile/builders.py` for the authoritative section
+    list — when adding or renaming a section, bump `INVENTORY_SOURCE_VERSION` so
+    the cache invalidates cleanly.
 - `limits.py`
   `RunLimits` dataclass (`max_runtime_s`, `max_findings`, …), `DEFAULT_LIMITS`,
   `WORKFLOW_HARD_CEILING_S` (the activity-level ceiling that gates the workflow's
