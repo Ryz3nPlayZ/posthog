@@ -109,6 +109,245 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * `inventory.project_context` — free-form orientation about the project's product.
+ */
+export interface ProjectContextApi {
+    /**
+     * Human-set product description on the project (max 1000 chars). When present, the most direct "what does this team's product do" answer. `null` when unset.
+     * @nullable
+     */
+    product_description: string | null
+    /** Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`. */
+    app_urls: string[]
+}
+
+/**
+ * One row in `inventory.product_intents`.
+ */
+export interface ProductIntentEntryApi {
+    /** Product key the team signaled intent to use. */
+    product_type: string
+    /**
+     * ISO-8601 timestamp the team activated the product, or null if intent only.
+     * @nullable
+     */
+    activated_at: string | null
+    /**
+     * ISO-8601 timestamp the intent was first recorded.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+/**
+ * One row in `inventory.integrations`. Sensitive config is intentionally excluded.
+ */
+export interface IntegrationEntryApi {
+    /** Integration kind (e.g. `slack`, `github`, `linear`). */
+    kind: string
+    /**
+     * ISO-8601 timestamp the integration was connected.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+/**
+ * One row in `inventory.external_data_sources`.
+ */
+export interface ExternalDataSourceEntryApi {
+    /** Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`). */
+    source_type: string
+    /** Current sync status (`Running`, `Failed`, `Paused`, etc.). */
+    status: string
+    /** Schema prefix used by this source, if any. */
+    prefix: string
+    /**
+     * ISO-8601 timestamp the source was connected.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+/**
+ * One row in either bucket of `inventory.signal_source_configs`.
+ */
+export interface SignalSourceConfigEntryApi {
+    /** Source product the config applies to. */
+    source_product: string
+    /** Source type within the product. */
+    source_type: string
+}
+
+/**
+ * `inventory.signal_source_configs` split into enabled and disabled buckets.
+ */
+export interface SignalSourceConfigsBucketsApi {
+    /** Source configs the team has explicitly enabled. */
+    enabled: SignalSourceConfigEntryApi[]
+    /** Source configs the team has explicitly disabled (different from never wired up). */
+    disabled: SignalSourceConfigEntryApi[]
+}
+
+/**
+ * One bucket in `inventory.existing_inbox_reports.by_status`.
+ */
+export interface InboxReportStatusBucketApi {
+    /** Report status (e.g. `potential`, `candidate`, `ready`). */
+    status: string
+    /** Number of reports in this status (excludes deleted/suppressed). */
+    count: number
+}
+
+/**
+ * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+ */
+export interface ExistingInboxReportsApi {
+    /** Total non-deleted, non-suppressed reports for this team. */
+    total: number
+    /** Per-status breakdown of inbox reports. */
+    by_status: InboxReportStatusBucketApi[]
+}
+
+/**
+ * One row in `inventory.recent_dashboards`.
+ */
+export interface RecentDashboardEntryApi {
+    /** Dashboard ID — pass to `dashboard-get` to pull the full payload. */
+    id: number
+    /** Dashboard name (may be blank if unnamed). */
+    name: string
+    /**
+     * ISO-8601 timestamp of the most recent view in the PostHog UI.
+     * @nullable
+     */
+    last_accessed_at: string | null
+    /**
+     * ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.
+     * @nullable
+     */
+    last_refresh: string | null
+    /**
+     * ISO-8601 timestamp the dashboard was created.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+/**
+ * One row in `inventory.popular_insights`.
+ */
+export interface PopularInsightEntryApi {
+    /** Insight short_id — pass to `insight-get` to pull the full query. */
+    short_id: string
+    /** Insight name when human-set, otherwise the auto-derived name. Same fallback the UI uses. */
+    name: string
+    /** Distinct users (`COUNT(DISTINCT user_id)` over `InsightViewed`) — popularity, not raw view total. A real measure of how many separate humans have looked at it. */
+    viewer_count: number
+    /**
+     * ISO-8601 timestamp of the most recent view across any user.
+     * @nullable
+     */
+    last_viewed_at: string | null
+    /**
+     * ISO-8601 timestamp of the most recent edit.
+     * @nullable
+     */
+    last_modified_at: string | null
+}
+
+/**
+ * One row in `inventory.top_events`.
+ */
+export interface TopEventEntryApi {
+    /** Event name as captured. */
+    event: string
+    /** Number of occurrences in the lookback window (last 7 days). */
+    count: number
+    /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
+    distinct_users: number
+    /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+    recent_24h_count: number
+    /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
+    recent_24h_users: number
+    /**
+     * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+     * @nullable
+     */
+    first_seen: string | null
+    /**
+     * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
+/**
+ * The deterministic inventory layer of a project profile.
+
+Read this to orient on the team's product mix, integrations, warehouse sources, signal
+coverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:
+profile is ground truth from authoritative tables; memory is agent inference.
+ */
+export interface ProjectProfileInventoryApi {
+    /** Free-form orientation: human-set product description + registered app URLs. */
+    project_context: ProjectContextApi
+    /** Product keys this team has completed onboarding for, sorted alphabetically. */
+    products_in_use: string[]
+    /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
+    product_intents: ProductIntentEntryApi[]
+    /** Connected integrations (kind + connection time only — config never surfaced). */
+    integrations: IntegrationEntryApi[]
+    /** Connected warehouse sources (excludes soft-deleted). */
+    external_data_sources: ExternalDataSourceEntryApi[]
+    /** Signal source configs split into enabled / disabled buckets. */
+    signal_source_configs: SignalSourceConfigsBucketsApi
+    /** Counts of reports already in the inbox, grouped by status. */
+    existing_inbox_reports: ExistingInboxReportsApi
+    /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
+    recent_dashboards: RecentDashboardEntryApi[]
+    /** Up to 20 insights ranked by distinct viewer count (real popularity, not raw view total), with the most-recent view as tiebreaker. Insights no one has ever viewed are filtered out. */
+    popular_insights: PopularInsightEntryApi[]
+    /**
+     * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+     * @nullable
+     */
+    top_events: TopEventEntryApi[] | null
+}
+
+/**
+ * Top-level `payload` shape on a `SignalProjectProfile` row.
+
+v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+`narrative` slots — they're absent (not null) in v1 responses.
+ */
+export interface ProjectProfilePayloadApi {
+    /** Deterministic snapshot of what's true about the project. */
+    inventory: ProjectProfileInventoryApi
+}
+
+/**
+ * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
+
+Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
+latest cached profile or a freshly-built one if the cache was stale or the caller passed
+`force_refresh=true`.
+ */
+export interface ProjectProfileApi {
+    /** UUID of the `SignalProjectProfile` row. */
+    profile_id: string
+    /** ISO-8601 timestamp the profile was built. */
+    computed_at: string
+    /** ISO-8601 timestamp after which the profile is considered stale. */
+    expires_at: string
+    /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
+    source_version: string
+    /** Structured profile content. v1 has `inventory` only. */
+    payload: ProjectProfilePayloadApi
+}
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
 
 Status and timestamps flow from the linked `tasks.TaskRun`.
