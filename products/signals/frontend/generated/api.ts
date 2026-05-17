@@ -51,10 +51,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Return `SignalMemory` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
- * @summary Search durable memories
- */
 export const getSignalsAgentMemoryListUrl = (projectId: string, params?: SignalsAgentMemoryListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -71,6 +67,10 @@ export const getSignalsAgentMemoryListUrl = (projectId: string, params?: Signals
         : `/api/projects/${projectId}/signals/agent/memory/`
 }
 
+/**
+ * Return `SignalMemory` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * @summary Search durable memories
+ */
 export const signalsAgentMemoryList = async (
     projectId: string,
     params?: SignalsAgentMemoryListParams,
@@ -82,14 +82,14 @@ export const signalsAgentMemoryList = async (
     })
 }
 
-/**
- * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
- * @summary Write or refresh an agent memory
- */
 export const getSignalsAgentMemoryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/agent/memory/`
 }
 
+/**
+ * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * @summary Write or refresh an agent memory
+ */
 export const signalsAgentMemoryCreate = async (
     projectId: string,
     rememberRequestApi: RememberRequestApi,
@@ -103,14 +103,14 @@ export const signalsAgentMemoryCreate = async (
     })
 }
 
-/**
- * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
- * @summary Delete an agent memory by key
- */
 export const getSignalsAgentMemoryDeleteUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/agent/memory/delete/`
 }
 
+/**
+ * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * @summary Delete an agent memory by key
+ */
 export const signalsAgentMemoryDelete = async (
     projectId: string,
     forgetRequestApi: ForgetRequestApi,
@@ -124,10 +124,6 @@ export const signalsAgentMemoryDelete = async (
     })
 }
 
-/**
- * Return the most recent `SignalAgentRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
- * @summary Search recent agent runs
- */
 export const getSignalsAgentRunsListUrl = (projectId: string, params?: SignalsAgentRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -144,6 +140,10 @@ export const getSignalsAgentRunsListUrl = (projectId: string, params?: SignalsAg
         : `/api/projects/${projectId}/signals/agent/runs/`
 }
 
+/**
+ * Return the most recent `SignalAgentRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
+ * @summary Search recent agent runs
+ */
 export const signalsAgentRunsList = async (
     projectId: string,
     params?: SignalsAgentRunsListParams,
@@ -155,14 +155,14 @@ export const signalsAgentRunsList = async (
     })
 }
 
-/**
- * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
- * @summary Get a run by ID
- */
 export const getSignalsAgentRunsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/agent/runs/${id}/`
 }
 
+/**
+ * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * @summary Get a run by ID
+ */
 export const signalsAgentRunsRetrieve = async (
     projectId: string,
     id: string,
@@ -174,14 +174,14 @@ export const signalsAgentRunsRetrieve = async (
     })
 }
 
-/**
- * Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
- * @summary Emit a finding for a run
- */
 export const getSignalsAgentRunsFindingsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/agent/runs/${id}/findings/`
 }
 
+/**
+ * Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
+ * @summary Emit a finding for a run
+ */
 export const signalsAgentRunsFindingsCreate = async (
     projectId: string,
     id: string,
@@ -196,9 +196,6 @@ export const signalsAgentRunsFindingsCreate = async (
     })
 }
 
-/**
- * Return current processing state including pause status.
- */
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -215,6 +212,9 @@ export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsP
         : `/api/projects/${projectId}/signals/processing/`
 }
 
+/**
+ * Return current processing state including pause status.
+ */
 export const signalsProcessingList = async (
     projectId: string,
     params?: SignalsProcessingListParams,
@@ -226,13 +226,13 @@ export const signalsProcessingList = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseUpdate = async (
     projectId: string,
     pauseUntilRequestApi: PauseUntilRequestApi,
@@ -246,13 +246,13 @@ export const signalsProcessingPauseUpdate = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseDestroyUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -389,7 +389,7 @@ export const getSignalsSourceConfigsPartialUpdateUrl = (projectId: string, id: s
 export const signalsSourceConfigsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSignalSourceConfigApi: NonReadonly<PatchedSignalSourceConfigApi>,
+    patchedSignalSourceConfigApi?: NonReadonly<PatchedSignalSourceConfigApi>,
     options?: RequestInit
 ): Promise<SignalSourceConfigApi> => {
     return apiMutator<SignalSourceConfigApi>(getSignalsSourceConfigsPartialUpdateUrl(projectId, id), {
@@ -415,6 +415,10 @@ export const signalsSourceConfigsDestroy = async (
     })
 }
 
+export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
+}
+
 /**
  * Per-user signal autonomy config (singleton keyed by user).
 
@@ -422,10 +426,6 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
 export const usersSignalAutonomyRetrieve = async (
     userId: string,
     options?: RequestInit
@@ -436,6 +436,10 @@ export const usersSignalAutonomyRetrieve = async (
     })
 }
 
+export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
+}
+
 /**
  * Per-user signal autonomy config (singleton keyed by user).
 
@@ -443,13 +447,9 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
 export const usersSignalAutonomyCreate = async (
     userId: string,
-    signalUserAutonomyConfigApi: NonReadonly<SignalUserAutonomyConfigApi>,
+    signalUserAutonomyConfigApi?: NonReadonly<SignalUserAutonomyConfigApi>,
     options?: RequestInit
 ): Promise<SignalUserAutonomyConfigApi> => {
     return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
@@ -460,6 +460,10 @@ export const usersSignalAutonomyCreate = async (
     })
 }
 
+export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
+}
+
 /**
  * Per-user signal autonomy config (singleton keyed by user).
 
@@ -467,10 +471,6 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
 export const usersSignalAutonomyDestroy = async (userId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersSignalAutonomyDestroyUrl(userId), {
         ...options,

@@ -13448,9 +13448,9 @@ export namespace Schemas {
       /** One-sentence prose about why this evidence supports the finding. */
       summary: string;
       /**
-       * Optional ID of the cited entity (issue id, recording id, log query id).
-       * @nullable
-       */
+         * Optional ID of the cited entity (issue id, recording id, log query id).
+         * @nullable
+         */
       entity_id?: string | null;
     }
 
@@ -13468,45 +13468,45 @@ export namespace Schemas {
       /** Canonical evidence-bundle prose. Becomes the signal's `description`. */
       description: string;
       /**
-       * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-       * @minimum 0
-       * @maximum 1
-       */
+         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * @minimum 0
+         * @maximum 1
+         */
       weight: number;
       /**
-       * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
-       * @minimum 0
-       * @maximum 1
-       */
+         * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+         * @minimum 0
+         * @maximum 1
+         */
       confidence: number;
       /**
-       * Citations supporting the finding. Capped at 20 entries.
-       * @maxItems 20
-       */
+         * Citations supporting the finding. Capped at 20 entries.
+         * @maxItems 20
+         */
       evidence: EvidenceEntry[];
       /**
-       * Optional one-line hypothesis the finding tests.
-       * @nullable
-       */
+         * Optional one-line hypothesis the finding tests.
+         * @nullable
+         */
       hypothesis?: string | null;
       /**
-       * Optional severity tag (`P0`-`P4`) — informational only.
-       * @nullable
-       */
+         * Optional severity tag (`P0`-`P4`) — informational only.
+         * @nullable
+         */
       severity?: string | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
       /** Optional time window the finding refers to. */
       time_range?: TimeRange | null;
       /**
-       * Optional MCP trace id for cross-system debugging.
-       * @nullable
-       */
+         * Optional MCP trace id for cross-system debugging.
+         * @nullable
+         */
       mcp_trace_id?: string | null;
       /**
-       * Idempotency key. Re-using the same id within a run short-circuits without re-emitting.
-       * @nullable
-       */
+         * Idempotency key. Re-using the same id within a run short-circuits without re-emitting.
+         * @nullable
+         */
       finding_id?: string | null;
     }
 
@@ -13516,9 +13516,9 @@ export namespace Schemas {
       /** Whether `emit_signal` was actually fired. */
       emitted: boolean;
       /**
-       * `shadow_mode` | `already_emitted` | null when emitted normally.
-       * @nullable
-       */
+         * `shadow_mode` | `already_emitted` | null when emitted normally.
+         * @nullable
+         */
       skipped_reason: string | null;
     }
 
@@ -17373,9 +17373,9 @@ export namespace Schemas {
      */
     export interface ForgetRequest {
       /**
-       * Memory key to delete.
-       * @maxLength 300
-       */
+         * Memory key to delete.
+         * @maxLength 300
+         */
       key: string;
     }
 
@@ -21348,24 +21348,24 @@ export namespace Schemas {
       /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
       tags: string[];
       /**
-       * ISO-8601 creation timestamp.
-       * @nullable
-       */
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
       created_at: string | null;
       /**
-       * ISO-8601 last-write timestamp.
-       * @nullable
-       */
+         * ISO-8601 last-write timestamp.
+         * @nullable
+         */
       updated_at: string | null;
       /**
-       * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-       * @nullable
-       */
+         * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
+         * @nullable
+         */
       expires_at: string | null;
       /**
-       * Run that wrote this entry, or null if human-authored.
-       * @nullable
-       */
+         * Run that wrote this entry, or null if human-authored.
+         * @nullable
+         */
       created_by_run_id: string | null;
     }
 
@@ -24225,28 +24225,28 @@ export namespace Schemas {
       /** ISO-8601 timestamp the run row was inserted. */
       started_at: string;
       /**
-       * ISO-8601 timestamp the run finalized; null while still running.
-       * @nullable
-       */
+         * ISO-8601 timestamp the run finalized; null while still running.
+         * @nullable
+         */
       completed_at: string | null;
       /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
       summary: string;
       /** Number of finding entries persisted on the run row. */
       findings_count: number;
       /**
-       * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
-       * @nullable
-       */
+         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+         * @nullable
+         */
       task_id?: string | null;
       /**
-       * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
-       * @nullable
-       */
+         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+         * @nullable
+         */
       task_run_id?: string | null;
       /**
-       * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
-       * @nullable
-       */
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+         * @nullable
+         */
       task_url?: string | null;
     }
 
@@ -34975,24 +34975,24 @@ export namespace Schemas {
      */
     export interface RememberRequest {
       /**
-       * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
-       * @maxLength 300
-       */
+         * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+         * @maxLength 300
+         */
       key: string;
       /** Prose to write. Read verbatim into future prompts. */
       content: string;
       /** Tags for later search. Empty/whitespace tags are dropped. */
       tags?: string[];
       /**
-       * Days until expiry (default 7, hard cap 90).
-       * @minimum 1
-       * @maximum 90
-       */
+         * Days until expiry (default 7, hard cap 90).
+         * @minimum 1
+         * @maximum 90
+         */
       ttl_days?: number;
       /**
-       * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
-       * @nullable
-       */
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+         * @nullable
+         */
       run_id?: string | null;
     }
 
@@ -35572,9 +35572,9 @@ export namespace Schemas {
       /** ISO-8601 timestamp the run row was inserted. */
       started_at: string;
       /**
-       * ISO-8601 timestamp the run finalized.
-       * @nullable
-       */
+         * ISO-8601 timestamp the run finalized.
+         * @nullable
+         */
       completed_at: string | null;
       /** Prose summary of the run. */
       summary: string;
@@ -35587,19 +35587,19 @@ export namespace Schemas {
       /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
       metadata: SignalAgentRunDetailMetadata;
       /**
-       * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
-       * @nullable
-       */
+         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+         * @nullable
+         */
       task_id?: string | null;
       /**
-       * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
-       * @nullable
-       */
+         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+         * @nullable
+         */
       task_run_id?: string | null;
       /**
-       * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
-       * @nullable
-       */
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+         * @nullable
+         */
       task_url?: string | null;
     }
 

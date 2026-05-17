@@ -75,7 +75,7 @@ export const SignalsAgentMemoryCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Days until expiry (default 7, hard cap 90).'),
         run_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe(
                 'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
@@ -126,7 +126,7 @@ export const SignalsAgentRunsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('Max rows to return (default 20, hard cap 100).'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     since: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('ISO-8601 lower bound on `started_at`. Use to scope to a recent window.'),
     text: zod
@@ -214,11 +214,14 @@ export const SignalsAgentRunsFindingsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
         time_range: zod
-            .object({
-                date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
-                date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
-            })
-            .nullish()
+            .union([
+                zod.object({
+                    date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
+                    date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
+                }),
+                zod.null(),
+            ])
+            .optional()
             .describe('Optional time window the finding refers to.'),
         mcp_trace_id: zod.string().nullish().describe('Optional MCP trace id for cross-system debugging.'),
         finding_id: zod
