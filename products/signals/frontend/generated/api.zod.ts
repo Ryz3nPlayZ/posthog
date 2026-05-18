@@ -28,10 +28,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'zendesk',
             'conversations',
             'error_tracking',
-            'signals_agent',
+            'signals_scout',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_agent` - Signals agent'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_scout` - Signals scout'
         ),
     source_type: zod
         .enum([
@@ -61,10 +61,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'zendesk',
             'conversations',
             'error_tracking',
-            'signals_agent',
+            'signals_scout',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_agent` - Signals agent'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_scout` - Signals scout'
         ),
     source_type: zod
         .enum([
@@ -94,11 +94,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'zendesk',
             'conversations',
             'error_tracking',
-            'signals_agent',
+            'signals_scout',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_agent` - Signals agent'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `signals_scout` - Signals scout'
         ),
     source_type: zod
         .enum([

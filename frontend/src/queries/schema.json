@@ -35920,7 +35920,7 @@
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 },
                 {
-                    "$ref": "#/definitions/SignalsAgentSignalInput"
+                    "$ref": "#/definitions/SignalsScoutSignalInput"
                 }
             ]
         },
@@ -35976,7 +35976,7 @@
             ],
             "type": "string"
         },
-        "SignalsAgentEvidenceEntry": {
+        "SignalsScoutEvidenceEntry": {
             "additionalProperties": false,
             "properties": {
                 "entity_id": {
@@ -35988,21 +35988,18 @@
                     "type": "string"
                 },
                 "summary": {
-                    "description": "One-line summary of the evidence the agent used.",
+                    "description": "One-line summary of the evidence the scout used.",
                     "type": "string"
                 }
             },
             "required": ["source_product", "summary"],
             "type": "object"
         },
-        "SignalsAgentSignalExtra": {
+        "SignalsScoutSignalExtra": {
             "additionalProperties": false,
             "properties": {
-                "agent_run_id": {
-                    "type": "string"
-                },
                 "confidence": {
-                    "description": "Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "description": "Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
                     "type": "number"
                 },
                 "dedupe_keys": {
@@ -36014,7 +36011,7 @@
                 },
                 "evidence": {
                     "items": {
-                        "$ref": "#/definitions/SignalsAgentEvidenceEntry"
+                        "$ref": "#/definitions/SignalsScoutEvidenceEntry"
                     },
                     "type": "array"
                 },
@@ -36025,7 +36022,10 @@
                     "type": "string"
                 },
                 "mcp_trace_id": {
-                    "description": "Trace id from the LLM analytics span for the agent run, when available.",
+                    "description": "Trace id from the LLM analytics span for the scout run, when available.",
+                    "type": "string"
+                },
+                "scout_run_id": {
                     "type": "string"
                 },
                 "severity": {
@@ -36053,23 +36053,23 @@
                     "type": "object"
                 }
             },
-            "required": ["agent_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
             "type": "object"
         },
-        "SignalsAgentSignalInput": {
+        "SignalsScoutSignalInput": {
             "additionalProperties": false,
             "properties": {
                 "description": {
                     "type": "string"
                 },
                 "extra": {
-                    "$ref": "#/definitions/SignalsAgentSignalExtra"
+                    "$ref": "#/definitions/SignalsScoutSignalExtra"
                 },
                 "source_id": {
                     "type": "string"
                 },
                 "source_product": {
-                    "const": "signals_agent",
+                    "const": "signals_scout",
                     "type": "string"
                 },
                 "source_type": {

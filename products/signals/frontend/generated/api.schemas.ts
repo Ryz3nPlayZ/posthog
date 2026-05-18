@@ -116,7 +116,7 @@ export interface PaginatedSignalReportListApi {
  * `zendesk` - Zendesk
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
- * `signals_agent` - Signals agent
+ * `signals_scout` - Signals scout
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -128,7 +128,7 @@ export const SourceProductEnumApi = {
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
-    SignalsAgent: 'signals_agent',
+    SignalsScout: 'signals_scout',
 } as const
 
 /**

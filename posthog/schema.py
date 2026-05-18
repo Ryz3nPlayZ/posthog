@@ -4544,7 +4544,7 @@ class SignalSourceType(StrEnum):
     CROSS_SOURCE_ISSUE = "cross_source_issue"
 
 
-class SignalsAgentEvidenceEntry(BaseModel):
+class SignalsScoutEvidenceEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4556,7 +4556,7 @@ class SignalsAgentEvidenceEntry(BaseModel):
         ...,
         description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
     )
-    summary: str = Field(..., description="One-line summary of the evidence the agent used.")
+    summary: str = Field(..., description="One-line summary of the evidence the scout used.")
 
 
 class Severity(StrEnum):
@@ -8447,40 +8447,40 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
-class SignalsAgentSignalExtra(BaseModel):
+class SignalsScoutSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    agent_run_id: str
     confidence: float = Field(
         ...,
-        description=("Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
     )
     dedupe_keys: list[str] | None = Field(
         default=None,
         description="Free-form short keys the harness can use for cross-run dedupe.",
     )
-    evidence: list[SignalsAgentEvidenceEntry]
+    evidence: list[SignalsScoutEvidenceEntry]
     finding_id: str
     hypothesis: str | None = None
     mcp_trace_id: str | None = Field(
         default=None,
-        description=("Trace id from the LLM analytics span for the agent run, when available."),
+        description=("Trace id from the LLM analytics span for the scout run, when available."),
     )
+    scout_run_id: str
     severity: Severity | None = None
     skill_name: str
     skill_version: int
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
-class SignalsAgentSignalInput(BaseModel):
+class SignalsScoutSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     description: str
-    extra: SignalsAgentSignalExtra
+    extra: SignalsScoutSignalExtra
     source_id: str
-    source_product: Literal["signals_agent"] = "signals_agent"
+    source_product: Literal["signals_scout"] = "signals_scout"
     source_type: Literal["cross_source_issue"] = "cross_source_issue"
     weight: float
 
@@ -18308,7 +18308,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-        | SignalsAgentSignalInput
+        | SignalsScoutSignalInput
     ]
 ):
     root: (
@@ -18321,7 +18321,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-        | SignalsAgentSignalInput
+        | SignalsScoutSignalInput
     )
 
 

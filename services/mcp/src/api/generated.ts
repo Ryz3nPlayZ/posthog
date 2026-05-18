@@ -21394,7 +21394,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
-    * `signals_agent` - Signals Agent
+    * `signals_scout` - Signals Scout
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -21408,7 +21408,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
-      SignalsAgent: 'signals_agent',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -23401,7 +23401,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
-    * `signals_agent` - Signals agent
+    * `signals_scout` - Signals scout
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -23414,7 +23414,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
-      SignalsAgent: 'signals_agent',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
