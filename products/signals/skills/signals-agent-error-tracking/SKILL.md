@@ -161,8 +161,6 @@ cross-source clustering.
 
 - **Single user, single session, single occurrence** — almost always a personal
   browser quirk. Confirmed via low `count` AND low `distinct_users`.
-- **Dev / local environment** — `properties.environment ∈ {dev, local, test}` or
-  the user is internal. Filter before weighing.
 - **Sandbox-internal exceptions** — KEA store-path errors, Docker `TimeoutExpired`,
   `agentsh` failures. Internal harness operations, not user-facing.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party

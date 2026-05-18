@@ -80,6 +80,7 @@ Custom event (not a `$builtin` like `$pageview` / `$identify`) firing meaningful
 volume per day, no saved insight references it.
 
 Direct calls:
+
 - `read-data-schema events` — surface event names + 24h volumes.
 - `execute-sql` against `system.insights` — find insights mentioning the event name in
   `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
@@ -99,6 +100,7 @@ An existing insight filters on event X, but X has 0 (or near-zero) firings in th
 - Capture broken upstream (different lens — let error-tracking own this).
 
 Direct calls:
+
 - `execute-sql` over `system.insights` to extract the events series each insight
   filters on.
 - `query-trends` to measure recent volume of those events.
@@ -116,6 +118,7 @@ patterns: search the event vocabulary for terms like `failed`, `error`, `blocked
 `denied`, `rejected`, `timeout`, `crashed`.
 
 Direct calls:
+
 - `read-data-schema events` filtered by name pattern (`failed`, `error`, etc).
 - `alerts-list` — what alerts exist and what they target.
 - `query-trends` to confirm volume is non-trivial (not just one-off).
@@ -130,6 +133,7 @@ A dashboard exists for a topic (name + description match a domain like "Onboardi
 of its insights.
 
 Direct calls:
+
 - `dashboards-get-all` — current dashboards + tags + descriptions.
 - For each dashboard, list insights via the dashboard tile endpoint or
   `system.insights WHERE id IN (dashboard.insight_ids)`.
@@ -145,6 +149,7 @@ funnel insight tracks the sequence. Usually an onboarding flow, signup flow, che
 flow, etc.
 
 Direct calls:
+
 - `query-paths` (one call) on top distinct events to surface common sequences.
 - `execute-sql` against `system.insights WHERE filters::text ILIKE '%FunnelsQuery%'`
   to find existing funnels.
@@ -160,6 +165,7 @@ A high-cardinality property on a high-volume event, and existing insights tracki
 the event use no breakdown — the team is losing dimension by aggregation.
 
 Direct calls:
+
 - `read-data-schema event_property_values` — see distinct values for a property.
 - `execute-sql` over `system.insights` for the event — extract `breakdownFilter` shape.
 - Compare property cardinality to whether any insight breaks down by it.
@@ -174,7 +180,7 @@ A finding here recommends an action, not surfaces a problem. Required elements:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list
   so a human can click straight to them.
-- **Volume + reach numbers** — the gap matters because of *N* events affecting *M*
+- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_
   users; quote both.
 - **Suggested action** — "create a trends insight on event X" / "update insight Y to
   point at event Z" / "add insight A to dashboard B" / "configure an alert on event C".
@@ -210,8 +216,6 @@ Two things every run, in this order:
   `$set`, `$opt_in`, `$groupidentify`, `$feature_flag_called` are surfaced through
   PostHog's product views (Web Analytics, Feature Flags) without needing a custom
   insight. Don't recommend creating one.
-- **Synthetic / dev-only events** — `properties.synthetic = True` (signals-chaos
-  injection) or `properties.environment ∈ {dev, local, ci}`. Filter before counting.
 - **Test events from internal users** — pin a memory `noise` entry for known internal
   distinct_ids and skip them in volume counts.
 - **Events from disabled feature flags** — if the event only fires when a flag is
@@ -248,7 +252,7 @@ Harness-level:
 - `signals-agent-runs-findings-create` — emit a recommendation finding.
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
-`posthog:querying-posthog-data` (HogQL syntax + system.* search patterns) and
+`posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and
 `posthog:exploring-autocapture-events` (custom-event vs autocapture distinctions, when
 each lens applies).
 
