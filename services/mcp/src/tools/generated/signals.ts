@@ -143,29 +143,6 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
     },
 })
 
-const SignalsScoutScratchpadDeleteSchema = SignalsScoutScratchpadDeleteBody
-
-const signalsScoutScratchpadDelete = (): ToolBase<
-    typeof SignalsScoutScratchpadDeleteSchema,
-    Schemas.ForgetResponse
-> => ({
-    name: 'signals-scout-scratchpad-delete',
-    schema: SignalsScoutScratchpadDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutScratchpadDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        const result = await context.api.request<Schemas.ForgetResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/memory/delete/`,
-            body,
-        })
-        return result
-    },
-})
-
 const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
 const signalsScoutProjectProfileGet = (): ToolBase<
@@ -290,14 +267,37 @@ const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSch
     },
 })
 
+const SignalsScoutScratchpadDeleteSchema = SignalsScoutScratchpadDeleteBody
+
+const signalsScoutScratchpadDelete = (): ToolBase<
+    typeof SignalsScoutScratchpadDeleteSchema,
+    Schemas.ForgetResponse
+> => ({
+    name: 'signals-scout-scratchpad-delete',
+    schema: SignalsScoutScratchpadDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutScratchpadDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/memory/delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
-    'signals-scout-scratchpad-delete': signalsScoutScratchpadDelete,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-findings-create': signalsScoutRunsFindingsCreate,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
+    'signals-scout-scratchpad-delete': signalsScoutScratchpadDelete,
 }
