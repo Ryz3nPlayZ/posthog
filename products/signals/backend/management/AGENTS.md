@@ -98,52 +98,52 @@ Uses synthetic JS SDK signals by default. The agent uses `gh` CLI to explore can
 
 ## Signals agent (headless scout)
 
-Two commands cover the day-to-day loop on the headless `signals-agent-*` scouts.
-Background and architecture: `../agent_harness/AGENTS.md` and `../../skills/AGENTS.md`.
+Two commands cover the day-to-day loop on the headless `signals-scout-*` scouts.
+Background and architecture: `../scout_harness/AGENTS.md` and `../../skills/AGENTS.md`.
 
 ### Running one scout locally
 
-`run_signals_agent` triggers a single `(team, skill)` run end-to-end without waiting
-for the Temporal coordinator. Inserts a `SignalAgentRun` row, opens a sandbox, pumps
+`run_signals_scout` triggers a single `(team, skill)` run end-to-end without waiting
+for the Temporal coordinator. Inserts a `SignalScoutRun` row, opens a sandbox, pumps
 the agent loop until budget exhaustion or natural completion, finalizes the run.
 
 ```bash
 # Single specialist run against a dogfood team
-python manage.py run_signals_agent \
+python manage.py run_signals_scout \
     --team-id 1 \
-    --skill-name signals-agent-llm-analytics
+    --skill-name signals-scout-llm-analytics
 
 # Pin a skill version (default: latest LLMSkill row for the team)
-python manage.py run_signals_agent --team-id 1 --skill-name signals-agent-general --skill-version 4
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general --skill-version 4
 
 # Override harness budget caps (max_runtime_s, max_findings, …)
-python manage.py run_signals_agent --team-id 1 --skill-name signals-agent-logs \
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-logs \
     --budget '{"max_runtime_s": 600, "max_findings": 5}'
 
 # Optional: pin the sandbox repository
-python manage.py run_signals_agent --team-id 1 --skill-name signals-agent-general \
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
     --repository posthog/posthog --verbose
 ```
 
-The team must have a `SignalAgentConfig` row. Fresh teams default to `shadow_mode=True` —
+The team must have a `SignalScoutConfig` row. Fresh teams default to `shadow_mode=True` —
 findings are persisted on the run row but the emit adapter no-ops, so nothing reaches
 the Signals inbox until you flip `shadow_mode=False`.
 
 ### Canonical skill sync
 
-`sync_signals_agent_skills` forces a `sync_canonical_skills` pass without waiting for
-the next coordinator tick. Reads `products/signals/skills/signals-agent-*/` from disk
+`sync_signals_scout_skills` forces a `sync_canonical_skills` pass without waiting for
+the next coordinator tick. Reads `products/signals/skills/signals-scout-*/` from disk
 and reconciles each scout against the team's `LLMSkill` rows.
 
 ```bash
 # After merging a SKILL.md change — fan out to every dogfood team now
-python manage.py sync_signals_agent_skills --all-enabled
+python manage.py sync_signals_scout_skills --all-enabled
 
 # Onboard one team synchronously
-python manage.py sync_signals_agent_skills --team-id 1
+python manage.py sync_signals_scout_skills --team-id 1
 
 # See what would change without writing
-python manage.py sync_signals_agent_skills --all-enabled --dry-run
+python manage.py sync_signals_scout_skills --all-enabled --dry-run
 ```
 
 Output buckets per team: `created`, `updated`, `diverged` (team-edited rows left alone),

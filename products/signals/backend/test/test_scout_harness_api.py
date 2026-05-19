@@ -84,15 +84,15 @@ def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, 
         "skill_version": 1,
     }
     defaults.update(overrides)
-    return SignalAgentRun.objects.create(team=team, **defaults)
+    return SignalScoutRun.objects.create(team=team, **defaults)
 
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
     def _detail_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/"
 
     def test_list_returns_runs_for_team_newest_first(self) -> None:
         older = _make_run(self.team)
@@ -173,7 +173,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         SignalSourceConfig.objects.get_or_create(
             team=self.team,
-            source_product="signals_agent",
+            source_product="signals_scout",
             source_type="cross_source_issue",
             defaults={"enabled": True},
         )
@@ -181,7 +181,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         _authenticate_as_scout(self)
 
     def _findings_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/findings/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/findings/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -254,10 +254,10 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         _authenticate_as_scout(self)
 
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/memory/"
+        return f"/api/projects/{self.team.id}/signals/scout/memory/"
 
     def _delete_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/memory/delete/"
+        return f"/api/projects/{self.team.id}/signals/scout/memory/delete/"
 
     def test_remember_creates_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked"}
@@ -272,8 +272,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         second = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json")
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
-        assert SignalMemory.objects.filter(team=self.team, key="k1").count() == 1
-        assert SignalMemory.objects.get(team=self.team, key="k1").content == "v2"
+        assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -293,8 +293,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
-        SignalMemory.objects.create(team=other, key="theirs", content="leaked?")
-        SignalMemory.objects.create(team=self.team, key="ours", content="visible")
+        SignalScratchpad.objects.create(team=other, key="theirs", content="leaked?")
+        SignalScratchpad.objects.create(team=self.team, key="ours", content="visible")
         response = self.client.get(self._list_url())
         keys = [row["key"] for row in response.json()]
         assert keys == ["ours"]
@@ -304,13 +304,26 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         response = self.client.post(self._forget_url(), data={"key": "k1"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": True}
-        assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
     def test_forget_returns_false_when_key_missing(self) -> None:
         response = self.client.post(self._forget_url(), data={"key": "ghost"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
 
+<<<<<<< HEAD
+=======
+    def test_forget_refuses_human_confirmed(self) -> None:
+        SignalScratchpad.objects.create(
+            team=self.team,
+            key="locked",
+            content="curated",
+            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
+        )
+        response = self.client.post(self._delete_url(), data={"key": "locked"}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+>>>>>>> d0193ab98c4 (refactor(signals): apply scout/scratchpad rename to PR 6 surface)
     def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
         run = _make_run(self.team)
         response = self.client.post(
@@ -319,7 +332,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
-        row = SignalMemory.objects.get(team=self.team, key="k1")
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(run.id)
 
     def test_remember_rejects_run_id_from_another_team(self) -> None:
@@ -335,7 +348,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("attr") == "run_id"
-        assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
     def test_remember_rejects_unknown_run_id(self) -> None:
         # A well-formed UUID that doesn't reference any run row should also bounce —
@@ -367,7 +380,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/project_profile/current/"
+        return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
     def test_lazy_computes_a_profile_when_none_exists(self) -> None:
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0

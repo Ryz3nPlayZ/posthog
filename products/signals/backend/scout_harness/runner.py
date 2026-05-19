@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Reuse the report-research sandbox env. Same posture: full repo on disk, restricted
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
-SIGNALS_AGENT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
+SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class RunResult:
     skip_reason: str | None = None
 
 
-def run_signals_agent(
+def run_signals_scout(
     *,
     team_id: int,
     skill_name: str,
@@ -65,10 +65,10 @@ def run_signals_agent(
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
     Wraps the async core for callers that aren't inside an event loop (management
-    command, direct script). Temporal activities call `arun_signals_agent` directly.
+    command, direct script). Temporal activities call `arun_signals_scout` directly.
     """
     return asyncio.run(
-        arun_signals_agent(
+        arun_signals_scout(
             team_id=team_id,
             skill_name=skill_name,
             skill_version=skill_version,
@@ -78,7 +78,7 @@ def run_signals_agent(
     )
 
 
-async def arun_signals_agent(
+async def arun_signals_scout(
     *,
     team_id: int,
     skill_name: str,
@@ -89,7 +89,7 @@ async def arun_signals_agent(
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
-    # Sync canonical signals-agent-* skills before we resolve the skill the run asked for.
+    # Sync canonical signals-scout-* skills before we resolve the skill the run asked for.
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
     # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
     # crash the run — we log and continue with whatever skills the team already has.
@@ -97,7 +97,7 @@ async def arun_signals_agent(
         await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team)
     except Exception:
         logger.exception(
-            "signals_agent: canonical skill sync failed; continuing with existing team skills",
+            "signals_scout: canonical skill sync failed; continuing with existing team skills",
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
@@ -216,7 +216,7 @@ async def _spawn_and_run(
     user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team.id)
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        SIGNALS_AGENT_SANDBOX_ENV_NAME,
+        SIGNALS_SCOUT_SANDBOX_ENV_NAME,
         SandboxEnvironment.NetworkAccessLevel.TRUSTED,
     )
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
@@ -228,9 +228,9 @@ async def _spawn_and_run(
         user_id=user_id,
         repository=repository,
         sandbox_environment_id=sandbox_env_id,
-        # `signals_agent` is the harness's own scope posture: same scope content as
+        # `signals_scout` is the harness's own scope posture: same scope content as
         # `read_only` (project reads + INTERNAL_SCOPES, including
-        # `signal_agent_internal:write`) but reports `has_write_scopes=True` so the
+        # `signal_scout_internal:write`) but reports `has_write_scopes=True` so the
         # MCP server doesn't enable read-only-mode tool filtering. Without that
         # opt-out, the MCP layer would categorically strip every tool annotated
         # `readOnlyHint: false` — including the agent's own `remember`, `forget`,
@@ -268,7 +268,7 @@ async def _spawn_and_run(
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=context,
-        model=SignalAgentRunSummary,
+        model=SignalScoutRunSummary,
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
@@ -339,10 +339,10 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
 
     Idempotent: safe to call from any number of concurrent coordinator activities.
     """
-    candidates = SignalAgentRun.objects.filter(
+    candidates = SignalScoutRun.objects.filter(
         team_id=team_id,
-        agent_config_id=config_id,
-        status=SignalAgentRun.Status.RUNNING,
+        scout_config_id=config_id,
+        status=SignalScoutRun.Status.RUNNING,
     ).only("id", "started_at", "metadata")
     now = timezone.now()
     threshold_s = _STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S
@@ -350,8 +350,8 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
         age_s = (now - run.started_at).total_seconds()
         if age_s <= threshold_s:
             continue
-        SignalAgentRun.objects.filter(id=run.id, status=SignalAgentRun.Status.RUNNING).update(
-            status=SignalAgentRun.Status.FAILED,
+        SignalScoutRun.objects.filter(id=run.id, status=SignalScoutRun.Status.RUNNING).update(
+            status=SignalScoutRun.Status.FAILED,
             completed_at=now,
             summary=(
                 f"Run row auto-healed: status=RUNNING for {age_s:.0f}s "
@@ -360,7 +360,7 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
             ),
         )
         logger.warning(
-            "signals_agent: self-healed stale running run",
+            "signals_scout: self-healed stale running run",
             extra={
                 "team_id": team_id,
                 "run_id": str(run.id),
@@ -397,4 +397,4 @@ def _finalize_run_summary(*, run_id: Any, summary: str) -> None:
 def _step_name(skill: LoadedSkill) -> str:
     # Surfaces in the Task title and S3 log prefix. Keep terse — the sandbox truncates.
     safe = skill.name.replace(" ", "_")[:40]
-    return f"signals_agent:{safe}"
+    return f"signals_scout:{safe}"

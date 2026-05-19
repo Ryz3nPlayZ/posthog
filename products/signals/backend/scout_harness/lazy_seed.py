@@ -14,11 +14,11 @@ import yaml
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 logger = logging.getLogger(__name__)
 
-# Canonical signals-agent-* skills live on disk under `products/signals/skills/` so they're
+# Canonical signals-scout-* skills live on disk under `products/signals/skills/` so they're
 # usable both as in-repo packaged skills (consumed by `hogli build:skills` for the AI plugin
 # and shipped via the dist/skills.zip release) and seeded into each team's LLMSkill namespace
 # by the headless harness. Single source of truth, two distribution paths.
@@ -56,7 +56,7 @@ class CanonicalSkillFile:
 
 @dataclass(frozen=True)
 class CanonicalSkill:
-    """A canonical `signals-agent-*` skill discovered from `products/signals/skills/`.
+    """A canonical `signals-scout-*` skill discovered from `products/signals/skills/`.
 
     `name` and `description` come from SKILL.md frontmatter. `body` is the markdown after the
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
@@ -132,9 +132,9 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
-    if not name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
+    if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
         raise CanonicalSkillParseError(
-            f"Canonical skill name must start with '{SIGNALS_AGENT_SKILL_PREFIX}': got {name!r} in {skill_file}"
+            f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"
         )
 
     # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
@@ -200,7 +200,7 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
 
 
 def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
-    """Walk `products/signals/skills/signals-agent-*/` and return the parsed manifest.
+    """Walk `products/signals/skills/signals-scout-*/` and return the parsed manifest.
 
     Skipping a malformed canonical entry would mask author errors; instead we let
     `CanonicalSkillParseError` propagate so the harness fails loud and the canonical source
@@ -213,7 +213,7 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
-        if not entry.name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
+        if not entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             continue
         if not (entry / "SKILL.md").is_file():
             continue
@@ -270,7 +270,7 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
             body=canonical.body,
             allowed_tools=list(canonical.allowed_tools),
             metadata={
-                "seeded_by": "signals_agent_harness",
+                "seeded_by": "signals_scout_harness",
                 "source": "products/signals/skills",
                 "canonical_hash": canonical_hash,
             },
@@ -297,7 +297,7 @@ def _update_skill_from_canonical(
     """Replace the team's live row for this skill with the latest canonical content, bumping
     the version. Mirrors the version-bump pattern a user-facing PHS edit would produce — old
     rows aren't mutated; we mark them `is_latest=False` and create a new row at `version+1`.
-    The `metadata.seeded_by="signals_agent_harness"` tag distinguishes our updates from
+    The `metadata.seeded_by="signals_scout_harness"` tag distinguishes our updates from
     user edits in the version-history view.
 
     Concurrency: `select_for_update` on the existing latest row pins it for the duration of
@@ -314,7 +314,7 @@ def _update_skill_from_canonical(
         locked.save(update_fields=["is_latest", "updated_at"])
 
         new_metadata = dict(locked.metadata or {})
-        new_metadata["seeded_by"] = "signals_agent_harness"
+        new_metadata["seeded_by"] = "signals_scout_harness"
         new_metadata["source"] = "products/signals/skills"
         new_metadata["canonical_hash"] = canonical_hash
 
@@ -356,7 +356,7 @@ def _backfill_canonical_hash(skill: LLMSkill, row_hash: str) -> None:
 
 
 def sync_canonical_skills(team: Team) -> SyncResult:
-    """Reconcile a team's `signals-agent-*` rows with the canonical fleet on disk.
+    """Reconcile a team's `signals-scout-*` rows with the canonical fleet on disk.
 
     Walks each canonical skill in `products/signals/skills/` and decides per-skill whether
     to create, update, leave-as-diverged, leave-as-tombstone, or backfill a baseline hash.
@@ -368,7 +368,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
     """
     canonicals = discover_canonical_skills()
     if not canonicals:
-        return SyncResult(skipped_reason="no canonical signals-agent-* skills on disk")
+        return SyncResult(skipped_reason="no canonical signals-scout-* skills on disk")
 
     created: list[str] = []
     updated: list[str] = []
@@ -392,7 +392,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
                 created.append(canonical.name)
             except IntegrityError:
                 logger.info(
-                    "signals_agent: concurrent create lost the race; skipping",
+                    "signals_scout: concurrent create lost the race; skipping",
                     extra={"team_id": team.id, "skill_name": canonical.name},
                 )
             continue
@@ -411,7 +411,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
         if stored_hash is None:
             # Pre-existing harness-seeded row from before hash tracking landed. Establish a
             # baseline and defer any update decision to the next tick. We do this for any
-            # signals-agent-* row regardless of provenance — a hand-authored row missing the
+            # signals-scout-* row regardless of provenance — a hand-authored row missing the
             # hash is treated the same way (its baseline becomes its current content, which
             # means it'll register as diverged on the next canonical change, which is correct).
             _backfill_canonical_hash(live, live_hash)
@@ -430,7 +430,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
         if live_hash != stored_hash:
             # The team's content drifted away from whatever canonical we last wrote — they
             # edited their copy. Leave it alone. They can opt back in via the management
-            # command (`reset_signals_agent_skill`) if they want to.
+            # command (`reset_signals_scout_skill`) if they want to.
             diverged.append(canonical.name)
             continue
 
@@ -442,13 +442,13 @@ def sync_canonical_skills(team: Team) -> SyncResult:
             updated.append(canonical.name)
         except IntegrityError:
             logger.info(
-                "signals_agent: concurrent update lost the race; skipping",
+                "signals_scout: concurrent update lost the race; skipping",
                 extra={"team_id": team.id, "skill_name": canonical.name},
             )
 
     if created or updated or backfilled:
         logger.info(
-            "signals_agent: synced canonical skills",
+            "signals_scout: synced canonical skills",
             extra={
                 "team_id": team.id,
                 "created": created,

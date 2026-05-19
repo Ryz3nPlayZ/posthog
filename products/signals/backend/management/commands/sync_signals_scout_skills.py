@@ -8,7 +8,7 @@ Use cases:
 - You shipped a quick revert and want every team back to the fixed canonical immediately.
 - You're onboarding a new team and want the canonical fleet seeded synchronously.
 
-Reads the canonical fleet from `products/signals/skills/signals-agent-*/` (whatever the
+Reads the canonical fleet from `products/signals/skills/signals-scout-*/` (whatever the
 worker process sees on disk), then calls `sync_canonical_skills(team)` per team. Same
 function the coordinator and runner call lazily — this command is just the impatient path.
 """
@@ -20,12 +20,12 @@ from django.db import transaction
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.agent_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.models import SignalAgentConfig
+from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 
 
 class Command(BaseCommand):
-    help = "Sync canonical signals-agent-* skills from disk to teams' LLMSkill rows."
+    help = "Sync canonical signals-scout-* skills from disk to teams' LLMSkill rows."
 
     def add_arguments(self, parser):
         # `--team-id` and `--all-enabled` are mutually exclusive; one is required. Plain
@@ -39,7 +39,7 @@ class Command(BaseCommand):
             "--all-enabled",
             action="store_true",
             help=(
-                "Sync every team that has an enabled SignalAgentConfig. Use this after "
+                "Sync every team that has an enabled SignalScoutConfig. Use this after "
                 "merging a SKILL.md change to fan it out to all dogfood teams."
             ),
         )
@@ -105,9 +105,9 @@ class Command(BaseCommand):
                 return [Team.objects.get(id=team_id)]
             except Team.DoesNotExist:
                 raise CommandError(f"Team {team_id} not found")
-        # all_enabled — pull every team that has at least one enabled SignalAgentConfig.
+        # all_enabled — pull every team that has at least one enabled SignalScoutConfig.
         # `select_related("team")` to avoid an N+1 in the loop above.
-        configs = SignalAgentConfig.objects.filter(enabled=True).select_related("team").order_by("team__id")
+        configs = SignalScoutConfig.objects.filter(enabled=True).select_related("team").order_by("team__id")
         # Distinct teams only; one config per team is the norm but we don't depend on it.
         seen: set[int] = set()
         teams: list[Team] = []

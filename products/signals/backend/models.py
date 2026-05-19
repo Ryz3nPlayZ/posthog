@@ -500,7 +500,7 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=("team", "skill_name"),
                 condition=models.Q(status="running"),
-                name="signal_agent_run_one_running_per_team_skill",
+                name="signal_scout_run_one_running_per_team_skill",
             ),
         ]
 
