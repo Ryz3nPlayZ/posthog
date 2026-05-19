@@ -2305,6 +2305,21 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-my-flags-retrieve": {
+        "description": "List all feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON object to evaluate group-based flags.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get my evaluated feature flags",
+        "title": "Get my evaluated feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-status-retrieve": {
         "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
         "category": "Feature flags",
@@ -4597,51 +4612,6 @@
             "readOnlyHint": true
         }
     },
-    "signals-scout-scratchpad-create": {
-        "description": "Upsert an `agent_inference` memory entry keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL (default 7 days, max 90). Cannot overwrite `human_confirmed` entries — those are managed by humans only. Use this to record \"already saw it\" notes, dedupe keys, validated hypotheses, or narrow the scope of future runs.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Write or refresh an agent memory",
-        "title": "Write or refresh an agent memory",
-        "required_scopes": ["signal_scout_internal:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "signals-scout-scratchpad-delete": {
-        "description": "Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is idempotent. Cannot delete `human_confirmed` entries.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Forget an agent memory by key",
-        "title": "Forget an agent memory by key",
-        "required_scopes": ["signal_scout_internal:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "signals-scout-scratchpad-list": {
-        "description": "Return `SignalScratchpad` entries the project has accumulated — known issues, false positives, team steering. ILIKE matches on `content`; tags filter via Postgres array overlap (pass repeated `tags=` query params). Expired `agent_inference` entries are hidden by default; pass `include_expired=true` for audit/debug.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Search durable agent memories",
-        "title": "Search durable agent memories",
-        "required_scopes": ["signal_scout:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "signals-scout-project-profile-get": {
         "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; memory is the agent's inferred learnings.",
         "category": "Signals",
@@ -4700,6 +4670,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "signals-scout-scratchpad-delete": {
+        "description": "Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is idempotent. Cannot delete `human_confirmed` entries.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Forget an agent memory by key",
+        "title": "Forget an agent memory by key",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "sql-variables-create": {

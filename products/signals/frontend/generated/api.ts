@@ -13,26 +13,26 @@ import type {
     EmitFindingResponseApi,
     ForgetRequestApi,
     ForgetResponseApi,
-    ScratchpadEntryApi,
-    PaginatedScratchpadEntryListApi,
     PaginatedPauseStateResponseListApi,
-    PaginatedSignalScoutRunSummaryListApi,
+    PaginatedScratchpadEntryListApi,
     PaginatedSignalReportListApi,
+    PaginatedSignalScoutRunSummaryListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
-    SignalScoutRunDetailApi,
+    ScratchpadEntryApi,
     SignalReportApi,
+    SignalScoutRunDetailApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalsProcessingListParams,
+    SignalsReportsListParams,
     SignalsScoutMemoryListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
-    SignalsProcessingListParams,
-    SignalsReportsListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -52,6 +52,115 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/processing/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/processing/`
+}
+
+/**
+ * Return current processing state including pause status.
+ */
+export const signalsProcessingList = async (
+    projectId: string,
+    params?: SignalsProcessingListParams,
+    options?: RequestInit
+): Promise<PaginatedPauseStateResponseListApi> => {
+    return apiMutator<PaginatedPauseStateResponseListApi>(getSignalsProcessingListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsProcessingPauseUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/processing/pause/`
+}
+
+/**
+ * View and control signal processing pipeline state for a team.
+ */
+export const signalsProcessingPauseUpdate = async (
+    projectId: string,
+    pauseUntilRequestApi: PauseUntilRequestApi,
+    options?: RequestInit
+): Promise<PauseResponseApi> => {
+    return apiMutator<PauseResponseApi>(getSignalsProcessingPauseUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pauseUntilRequestApi),
+    })
+}
+
+export const getSignalsProcessingPauseDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/processing/pause/`
+}
+
+/**
+ * View and control signal processing pipeline state for a team.
+ */
+export const signalsProcessingPauseDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PauseResponseApi> => {
+    return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsListUrl = (projectId: string, params?: SignalsReportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/`
+}
+
+export const signalsReportsList = async (
+    projectId: string,
+    params?: SignalsReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportListApi> => {
+    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+export const signalsReportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getSignalsScoutMemoryListUrl = (projectId: string, params?: SignalsScoutMemoryListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -73,7 +182,7 @@ export const getSignalsScoutMemoryListUrl = (projectId: string, params?: Signals
  * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
  * @summary Search durable memories
  */
-export const signalsScoutScratchpadList = async (
+export const signalsScoutMemoryList = async (
     projectId: string,
     params?: SignalsScoutMemoryListParams,
     options?: RequestInit
@@ -92,7 +201,7 @@ export const getSignalsScoutMemoryCreateUrl = (projectId: string) => {
  * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
  * @summary Write or refresh an agent memory
  */
-export const signalsScoutScratchpadCreate = async (
+export const signalsScoutMemoryCreate = async (
     projectId: string,
     rememberRequestApi: RememberRequestApi,
     options?: RequestInit
@@ -105,7 +214,7 @@ export const signalsScoutScratchpadCreate = async (
     })
 }
 
-export const getSignalsScoutMemoryDeleteUrl = (projectId: string) => {
+export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/memory/delete/`
 }
 
@@ -118,7 +227,7 @@ export const signalsScoutScratchpadDelete = async (
     forgetRequestApi: ForgetRequestApi,
     options?: RequestInit
 ): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsScoutMemoryDeleteUrl(projectId), {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -229,115 +338,6 @@ export const signalsScoutRunsFindingsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
-    })
-}
-
-export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/processing/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/processing/`
-}
-
-/**
- * Return current processing state including pause status.
- */
-export const signalsProcessingList = async (
-    projectId: string,
-    params?: SignalsProcessingListParams,
-    options?: RequestInit
-): Promise<PaginatedPauseStateResponseListApi> => {
-    return apiMutator<PaginatedPauseStateResponseListApi>(getSignalsProcessingListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSignalsProcessingPauseUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/processing/pause/`
-}
-
-/**
- * View and control signal processing pipeline state for a team.
- */
-export const signalsProcessingPauseUpdate = async (
-    projectId: string,
-    pauseUntilRequestApi: PauseUntilRequestApi,
-    options?: RequestInit
-): Promise<PauseResponseApi> => {
-    return apiMutator<PauseResponseApi>(getSignalsProcessingPauseUpdateUrl(projectId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(pauseUntilRequestApi),
-    })
-}
-
-export const getSignalsProcessingPauseDestroyUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/processing/pause/`
-}
-
-/**
- * View and control signal processing pipeline state for a team.
- */
-export const signalsProcessingPauseDestroy = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<PauseResponseApi> => {
-    return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getSignalsReportsListUrl = (projectId: string, params?: SignalsReportsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/reports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/reports/`
-}
-
-export const signalsReportsList = async (
-    projectId: string,
-    params?: SignalsReportsListParams,
-    options?: RequestInit
-): Promise<PaginatedSignalReportListApi> => {
-    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/`
-}
-
-export const signalsReportsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SignalReportApi> => {
-    return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
