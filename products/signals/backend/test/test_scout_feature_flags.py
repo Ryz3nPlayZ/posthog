@@ -1,4 +1,4 @@
-"""Tests for `agent_harness/feature_flags.py`.
+"""Tests for `scout_harness/feature_flags.py`.
 
 Locks the contract between this module's gate (used by the coordinator + management
 command) and `posthoganalytics.feature_enabled`: both group and group-properties are
@@ -15,20 +15,20 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.signals.backend.agent_harness.feature_flags import SIGNALS_AGENT_ROLLOUT_FLAG, team_passes_rollout_flag
+from products.signals.backend.scout_harness.feature_flags import SIGNALS_SCOUT_ROLLOUT_FLAG, team_passes_rollout_flag
 
 
 class TestTeamPassesRolloutFlag(BaseTest):
     def test_returns_true_when_flag_evaluates_true(self) -> None:
         with patch(
-            "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+            "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
             return_value=True,
         ):
             assert team_passes_rollout_flag(self.team) is True
 
     def test_returns_false_when_flag_evaluates_false(self) -> None:
         with patch(
-            "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+            "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
             return_value=False,
         ):
             assert team_passes_rollout_flag(self.team) is False
@@ -37,7 +37,7 @@ class TestTeamPassesRolloutFlag(BaseTest):
         # `posthoganalytics.feature_enabled` returns None when local eval can't decide
         # (and `only_evaluate_locally=True` kept us off the network). bool(None) is False.
         with patch(
-            "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+            "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
             return_value=None,
         ):
             assert team_passes_rollout_flag(self.team) is False
@@ -47,11 +47,11 @@ class TestTeamPassesRolloutFlag(BaseTest):
         # never be an implicit allow.
         with (
             patch(
-                "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+                "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
                 side_effect=RuntimeError("posthoganalytics misconfigured"),
             ),
             patch(
-                "products.signals.backend.agent_harness.feature_flags.capture_exception",
+                "products.signals.backend.scout_harness.feature_flags.capture_exception",
             ) as captured,
         ):
             assert team_passes_rollout_flag(self.team) is False
@@ -60,14 +60,14 @@ class TestTeamPassesRolloutFlag(BaseTest):
     @override_settings(DEBUG=False)
     def test_passes_team_uuid_organization_and_project_groups(self) -> None:
         with patch(
-            "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+            "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
             return_value=True,
         ) as mock_eval:
             team_passes_rollout_flag(self.team)
 
         mock_eval.assert_called_once()
         args, kwargs = mock_eval.call_args
-        assert args[0] == SIGNALS_AGENT_ROLLOUT_FLAG
+        assert args[0] == SIGNALS_SCOUT_ROLLOUT_FLAG
         assert args[1] == str(self.team.uuid)
         assert kwargs["groups"] == {
             "organization": str(self.team.organization_id),
@@ -90,7 +90,7 @@ class TestTeamPassesRolloutFlag(BaseTest):
         # coordinator. DEBUG flips us to remote eval so dev unblocks; one decide call
         # per coordinator tick is negligible cost.
         with patch(
-            "products.signals.backend.agent_harness.feature_flags.posthoganalytics.feature_enabled",
+            "products.signals.backend.scout_harness.feature_flags.posthoganalytics.feature_enabled",
             return_value=True,
         ) as mock_eval:
             team_passes_rollout_flag(self.team)

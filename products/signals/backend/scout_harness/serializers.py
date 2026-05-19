@@ -1,4 +1,4 @@
-"""DRF serializers for the Signals agent harness HTTP surface.
+"""DRF serializers for the Signals scout harness HTTP surface.
 
 These serializers shape the harness-internal tools (`search_recent_runs`,
 `get_run`, `search_scratchpad`, `remember`, `forget`, `emit_finding`) for MCP

@@ -635,7 +635,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
-        // signals-agent-* tools no longer carry a per-tool flag annotation — the
+        // signals-scout-* tools no longer carry a per-tool flag annotation — the
         // coordinator gate (`team_passes_rollout_flag`) is the rollout boundary;
         // the per-tool flag would have been duplicate defense-in-depth, plus
         // making per-MCP-session flag eval reliable enough to support it

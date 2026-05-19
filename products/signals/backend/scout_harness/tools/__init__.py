@@ -1,4 +1,4 @@
-"""Harness-internal tools the Signals agent calls during a run.
+"""Harness-internal tools the Signals scout calls during a run.
 
 The harness wraps these as sync Python functions; the runner / agent-SDK glue
 (Phase 3e) is responsible for adapting them into the tool registry seen by the

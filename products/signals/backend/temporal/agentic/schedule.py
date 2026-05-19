@@ -1,4 +1,4 @@
-"""Schedule registration for the headless Signals agent coordinator."""
+"""Schedule registration for the headless Signals scout coordinator."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ SIGNALS_SCOUT_COORDINATOR_WORKFLOW_NAME = "run-signals-scout-coordinator"
 
 
 async def create_signals_scout_coordinator_schedule(client: Client) -> None:
-    """Create or update the hourly schedule that drives the Signals agent coordinator.
+    """Create or update the hourly schedule that drives the Signals scout coordinator.
 
     The coordinator runs on the existing signals task queue (currently
     `VIDEO_EXPORT_TASK_QUEUE`, shared with the rest of the signals temporal worker).

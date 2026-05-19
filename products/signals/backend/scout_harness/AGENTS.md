@@ -1,8 +1,8 @@
-# Signals Agent Harness
+# Signals scout Harness
 
-This directory contains the headless **Signals agent** — a scheduled scout that explores
+This directory contains the headless **Signals scout** — a scheduled scout that explores
 a project, writes durable memory across runs, and emits findings into the Signals inbox
-via `emit_signal()` using the `signals_agent` source variant.
+via `emit_signal()` using the `signals_scout` source variant.
 
 It is the second agentic surface in Signals. The other one — `report_generation/` — runs
 on demand when a `SignalReport` is promoted to `candidate` and produces a single research
@@ -10,31 +10,31 @@ output for one report. The harness here is the inverse: it runs on a schedule, d
 _what_ to investigate from scratch, and pushes new signals into the same pipeline rather
 than acting on existing ones.
 
-In production it is driven by `SignalsAgentCoordinatorWorkflow` (hourly tick → fan out
-per-(team, skill) child workflows). Locally it is exercised via the `run_signals_agent`
+In production it is driven by `SignalsScoutCoordinatorWorkflow` (hourly tick → fan out
+per-(team, skill) child workflows). Locally it is exercised via the `run_signals_scout`
 management command (see `../management/AGENTS.md`).
 
 ## What lives here
 
 - `runner.py`
-  Per-run entrypoint (`arun_signals_agent` / `run_signals_agent`). Inserts the
-  `SignalAgentRun` row, builds the prompt + toolset, spawns the sandbox session,
+  Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the
+  `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session,
   pumps the agent loop until budget exhaustion or natural completion, finalizes the run,
-  and returns a `RunResult`. The activity wrapper in `temporal/agentic/agent_scheduler.py`
+  and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py`
   delegates straight to this.
 - `prompt.py`
   Assembles the system prompt: persona + skill body + relevant memory + project profile
   inventory + recent run summaries. Memory and run history are filtered by skill so a
   specialist only sees its own past work.
 - `skill_loader.py`
-  Resolves `signals-agent-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_AGENT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools).
+  Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools).
 - `lazy_seed.py`
-  Canonical skill sync. Reads `products/signals/skills/signals-agent-*/` from disk and
+  Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
   ones the team hasn't edited, leaves diverged rows alone, tombstones rows whose
   canonical skill was deleted, backfills metadata. Called both lazily (coordinator tick,
-  runner cold-start) and explicitly via the `sync_signals_agent_skills` management command.
+  runner cold-start) and explicitly via the `sync_signals_scout_skills` management command.
 - `tool_registry.py`
   Declares `HARNESS_INTERNAL_TOOLS` (the harness-owned tools: emit, memory, profile,
   runs) and resolves the effective toolset for a run by intersecting the skill's
@@ -44,10 +44,10 @@ management command (see `../management/AGENTS.md`).
   Implementations of the four harness-internal tools the agent calls during a run:
   - `emit.py` — `emit_signal_*` tools that push findings as `cross_source_issue`
     signals into the standard ingestion pipeline.
-  - `memory.py` — `memory_*` tools (read/write/delete) backed by the `SignalMemory` model.
+  - `memory.py` — `memory_*` tools (read/write/delete) backed by the `SignalScratchpad` model.
   - `profile.py` — `project_profile_*` tools that read the deterministic
     `SignalProjectProfile` snapshot.
-  - `runs.py` — `runs_*` tools that read past `SignalAgentRun` rows for dedupe and
+  - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
     cross-skill awareness.
 - `profile/`
   - `builders.py` — deterministic builders that compute the inventory payload for
@@ -67,13 +67,13 @@ management command (see `../management/AGENTS.md`).
   `RunLimits` dataclass (`max_runtime_s`, `max_findings`, …), `DEFAULT_LIMITS`,
   `WORKFLOW_HARD_CEILING_S` (the activity-level ceiling that gates the workflow's
   `start_to_close_timeout`), and `resolve_limits()` which folds per-team
-  `SignalAgentConfig.limit_overrides` over the harness defaults.
+  `SignalScoutConfig.limit_overrides` over the harness defaults.
 - `feature_flags.py`
-  Single source of truth for the `signals-agent` rollout flag. Exports
+  Single source of truth for the `signals-scout` rollout flag. Exports
   `team_passes_rollout_flag(team)` — used by the Temporal coordinator activity and
-  the `sync_signals_agent_skills` management command to gate runtime fan-out and
-  canonical-skill push per team. Same flag key (`signals-agent`) is annotated on
-  every `signals-agent-*` MCP tool in `products/signals/mcp/tools.yaml`, where the
+  the `sync_signals_scout_skills` management command to gate runtime fan-out and
+  canonical-skill push per team. Same flag key (`signals-scout`) is annotated on
+  every `signals-scout-*` MCP tool in `products/signals/mcp/tools.yaml`, where the
   MCP server evaluates it per-user at session init. Flag eval fails closed so a
   posthoganalytics outage can never silently let through non-enrolled teams. See
   the "Rollout & feature flags" section in `../../ARCHITECTURE.md`.
@@ -81,13 +81,13 @@ management command (see `../management/AGENTS.md`).
   DRF serializers for the harness HTTP surface (runs, memory, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
-  `SignalAgentRunViewSet`, `SignalMemoryViewSet`, `SignalProjectProfileViewSet`.
-  Routed under `environment_signals_agent_*` basenames in `posthog/api/__init__.py`
-  and exposed as `signals-agent-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutRunViewSet`, `SignalScratchpadViewSet`, `SignalProjectProfileViewSet`.
+  Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
+  and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
 
 ## Mental model
 
-`arun_signals_agent()` is the main entrypoint. One call → one `SignalAgentRun` row →
+`arun_signals_scout()` is the main entrypoint. One call → one `SignalScoutRun` row →
 one sandbox session → zero or more emitted signals.
 
 - The harness inserts the bridge row at the start of a run (inside `_spawn_and_run`).
@@ -99,7 +99,7 @@ one sandbox session → zero or more emitted signals.
   stale-run recovery (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; `enabled_skill_names` on the
-  team's `SignalAgentConfig` narrows the candidate pool the coordinator samples from.
+  team's `SignalScoutConfig` narrows the candidate pool the coordinator samples from.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
   sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
   by the `on_task_run_created` hook before the agent's first turn — this powers the
@@ -108,7 +108,7 @@ one sandbox session → zero or more emitted signals.
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
-  with `source_product="signals_agent"` and `source_type="cross_source_issue"`.
+  with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path
   as any other source.
 - Memory and run history are read at prompt assembly time. The agent can also write
@@ -118,19 +118,19 @@ one sandbox session → zero or more emitted signals.
 
 ## Where the rest of the system meets this directory
 
-- **Coordinator** — `temporal/agentic/agent_coordinator.py` and `agent_scheduler.py`.
+- **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Hourly tick (`COORDINATOR_INTERVAL_MINUTES = 60`), `runs_per_tick` sample per team,
   hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop
   ticks rather than queue them.
-- **Models** — `SignalAgentConfig`, `SignalAgentRun`, `SignalMemory`,
+- **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
   `SignalProjectProfile` in `../models.py`.
-- **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_AGENT` paired with
+- **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
   `SourceType.CROSS_SOURCE_ISSUE`.
-- **Scout fleet** — the `signals-agent-*` skills live at
-  `../../skills/signals-agent-*/` (generalist + 5 specialists). See
+- **Scout fleet** — the `signals-scout-*` skills live at
+  `../../skills/signals-scout-*/` (generalist + 5 specialists). See
   `../../skills/AGENTS.md` for the fleet convention.
-- **Local commands** — `run_signals_agent` (one-shot run) and
-  `sync_signals_agent_skills` (force a canonical-skill sync). Both documented in
+- **Local commands** — `run_signals_scout` (one-shot run) and
+  `sync_signals_scout_skills` (force a canonical-skill sync). Both documented in
   `../management/AGENTS.md`.
 
 ## When editing this flow

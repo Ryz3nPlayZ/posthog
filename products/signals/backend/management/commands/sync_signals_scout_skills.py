@@ -8,7 +8,7 @@ Use cases:
 - You shipped a quick revert and want every team back to the fixed canonical immediately.
 - You're onboarding a new team and want the canonical fleet seeded synchronously.
 
-Reads the canonical fleet from `products/signals/skills/signals-agent-*/` (whatever the
+Reads the canonical fleet from `products/signals/skills/signals-scout-*/` (whatever the
 worker process sees on disk), then calls `sync_canonical_skills(team)` per team. Same
 function the coordinator and runner call lazily — this command is just the impatient path.
 """
@@ -20,13 +20,13 @@ from django.db import transaction
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.agent_harness.feature_flags import team_passes_rollout_flag
-from products.signals.backend.agent_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.models import SignalAgentConfig
+from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.feature_flags import team_passes_rollout_flag
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 
 
 class Command(BaseCommand):
-    help = "Sync canonical signals-agent-* skills from disk to teams' LLMSkill rows."
+    help = "Sync canonical signals-scout-* skills from disk to teams' LLMSkill rows."
 
     def add_arguments(self, parser):
         # `--team-id` and `--all-enabled` are mutually exclusive; one is required. Plain
@@ -40,7 +40,7 @@ class Command(BaseCommand):
             "--all-enabled",
             action="store_true",
             help=(
-                "Sync every team that has an enabled SignalAgentConfig. Use this after "
+                "Sync every team that has an enabled SignalScoutConfig. Use this after "
                 "merging a SKILL.md change to fan it out to all dogfood teams."
             ),
         )
@@ -53,7 +53,7 @@ class Command(BaseCommand):
             "--force",
             action="store_true",
             help=(
-                "Skip the per-team `signals-agent` feature-flag check. By default this "
+                "Skip the per-team `signals-scout` feature-flag check. By default this "
                 "command honors the same rollout gate as the Temporal coordinator — a "
                 "team that is configured-enabled but flag-gated off does not get its "
                 "canonical skills updated, so a flag flip-off cleanly drains. Use --force "
@@ -87,11 +87,11 @@ class Command(BaseCommand):
                 if team_passes_rollout_flag(team):
                     allowed.append(team)
                 else:
-                    self.stdout.write(f"team {team.id}: skipped — gated by signals-agent rollout flag")
+                    self.stdout.write(f"team {team.id}: skipped — gated by signals-scout rollout flag")
             if not allowed:
                 self.stdout.write(
                     self.style.WARNING(
-                        "All matched teams are gated off by the signals-agent rollout flag. Use --force to bypass."
+                        "All matched teams are gated off by the signals-scout rollout flag. Use --force to bypass."
                     )
                 )
                 return

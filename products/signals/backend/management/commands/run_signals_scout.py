@@ -1,8 +1,8 @@
-"""Hand-trigger one Signals agent run against a team + skill.
+"""Hand-trigger one Signals scout run against a team + skill.
 
 Used during dogfood to exercise the harness end-to-end without waiting for the
 Temporal scheduler. Inserts a `SignalScoutRun` row, spawns a sandbox, polls until
-the agent finishes, and prints the resulting run id and final message.
+the scout finishes, and prints the resulting run id and final message.
 """
 
 from __future__ import annotations

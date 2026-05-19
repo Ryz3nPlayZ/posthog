@@ -1,4 +1,4 @@
-"""Headless Signals agent harness.
+"""Headless Signals scout harness.
 
 Spawns sandbox agents from an hourly Temporal coordinator, persists run rows,
 and emits signals via `emit_signal()`.

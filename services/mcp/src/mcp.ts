@@ -927,7 +927,7 @@ export class MCP extends McpAgent<Env> {
             // disabled). That's fine as a fail-closed default, but silently is the
             // wrong volume — a tool that goes missing should leave a breadcrumb
             // instead of looking like a bug in the tool itself. Logged here so
-            // operators investigating "agent says signals-agent-* tools missing"
+            // operators investigating "agent says signals-scout-* tools missing"
             // can find the actual cause.
             console.warn(
                 '[MCP] Tool feature-flag resolution failed; flag-gated tools will be omitted from this session.',

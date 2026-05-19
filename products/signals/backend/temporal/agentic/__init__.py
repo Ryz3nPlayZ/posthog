@@ -22,7 +22,7 @@ def get_or_create_signals_sandbox_env(
     allowed_domains: list[str] | None = None,
     include_default_domains: bool = False,
 ) -> str:
-    """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
+    """Get or create a SandboxEnvironment for a Signals scout. Returns the env ID as a string.
 
     Uses update_or_create to reassert the expected policy on every call,
     so manual edits via the API are corrected on next run.
