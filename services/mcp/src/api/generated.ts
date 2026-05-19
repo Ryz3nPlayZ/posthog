@@ -13440,7 +13440,7 @@ export namespace Schemas {
     }
 
     /**
-     * One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.
+     * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
      */
     export interface EvidenceEntry {
       /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
@@ -21335,40 +21335,6 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
-    /**
-     * `SignalMemory` projection used by `search-memory` and `remember`.
-     */
-    export interface MemoryEntry {
-      /** Agent-chosen semantic key, unique per team. */
-      key: string;
-      /** Prose content for prompt injection. */
-      content: string;
-      /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
-      authority: string;
-      /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
-      tags: string[];
-      /**
-         * ISO-8601 creation timestamp.
-         * @nullable
-         */
-      created_at: string | null;
-      /**
-         * ISO-8601 last-write timestamp.
-         * @nullable
-         */
-      updated_at: string | null;
-      /**
-         * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-         * @nullable
-         */
-      expires_at: string | null;
-      /**
-         * Run that wrote this entry, or null if human-authored.
-         * @nullable
-         */
-      created_by_run_id: string | null;
-    }
-
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -23106,15 +23072,6 @@ export namespace Schemas {
       results: MaxCoreMemory[];
     }
 
-    export interface PaginatedMemoryEntryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MemoryEntry[];
-    }
-
     export interface PaginatedMessageCategoryList {
       count: number;
       /** @nullable */
@@ -24031,6 +23988,49 @@ export namespace Schemas {
       results: ScoreDefinition[];
     }
 
+    /**
+     * `SignalScratchpad` projection used by `search-memory` and `remember`.
+     */
+    export interface ScratchpadEntry {
+      /** Agent-chosen semantic key, unique per team. */
+      key: string;
+      /** Prose content for prompt injection. */
+      content: string;
+      /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
+      authority: string;
+      /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
+      tags: string[];
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 last-write timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Run that wrote this entry, or null if human-authored.
+         * @nullable
+         */
+      created_by_run_id: string | null;
+    }
+
+    export interface PaginatedScratchpadEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ScratchpadEntry[];
+    }
+
     export interface SessionGroupSummaryMinimal {
       readonly id: string;
       /** Title of the group session summary */
@@ -24211,55 +24211,6 @@ export namespace Schemas {
     }
 
     /**
-     * Lightweight projection of a `SignalAgentRun` row used by `search-recent-runs`.
-     */
-    export interface SignalAgentRunSummary {
-      /** UUID of the run row. */
-      run_id: string;
-      /** Canonical skill name the run executed (e.g. `signals-agent-general`). */
-      skill_name: string;
-      /** Skill version snapshotted at run start. */
-      skill_version: number;
-      /** Run status: scheduled | running | completed | failed | abandoned. */
-      status: string;
-      /** ISO-8601 timestamp the run row was inserted. */
-      started_at: string;
-      /**
-         * ISO-8601 timestamp the run finalized; null while still running.
-         * @nullable
-         */
-      completed_at: string | null;
-      /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
-      summary: string;
-      /** Number of finding entries persisted on the run row. */
-      findings_count: number;
-      /**
-         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
-         * @nullable
-         */
-      task_id?: string | null;
-      /**
-         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
-         * @nullable
-         */
-      task_run_id?: string | null;
-      /**
-         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
-         * @nullable
-         */
-      task_url?: string | null;
-    }
-
-    export interface PaginatedSignalAgentRunSummaryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SignalAgentRunSummary[];
-    }
-
-    /**
      * * `potential` - Potential
     * `candidate` - Candidate
     * `in_progress` - In Progress
@@ -24330,6 +24281,55 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReport[];
+    }
+
+    /**
+     * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+     */
+    export interface SignalScoutRunSummary {
+      /** UUID of the run row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Run status: scheduled | running | completed | failed | abandoned. */
+      status: string;
+      /** ISO-8601 timestamp the run row was inserted. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the run finalized; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
+      summary: string;
+      /** Number of finding entries persisted on the run row. */
+      findings_count: number;
+      /**
+         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+         * @nullable
+         */
+      task_url?: string | null;
+    }
+
+    export interface PaginatedSignalScoutRunSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalScoutRunSummary[];
     }
 
     /**
@@ -35543,24 +35543,24 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
-    export type SignalAgentRunDetailFindingsItem = { [key: string]: unknown };
+    export type SignalScoutRunDetailFindingsItem = { [key: string]: unknown };
 
-    export type SignalAgentRunDetailHypothesesConsideredItem = { [key: string]: unknown };
+    export type SignalScoutRunDetailHypothesesConsideredItem = { [key: string]: unknown };
 
     /**
      * Measured quantities about how the run went, e.g. {runtime_s, findings}.
      */
-    export type SignalAgentRunDetailRunMetrics = {[key: string]: number};
+    export type SignalScoutRunDetailRunMetrics = {[key: string]: number};
 
     /**
      * Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).
      */
-    export type SignalAgentRunDetailMetadata = { [key: string]: unknown };
+    export type SignalScoutRunDetailMetadata = { [key: string]: unknown };
 
     /**
-     * Full `SignalAgentRun` projection used by `get-run`. Includes structured payloads.
+     * Full `SignalScoutRun` projection used by `get-run`. Includes structured payloads.
      */
-    export interface SignalAgentRunDetail {
+    export interface SignalScoutRunDetail {
       /** UUID of the run row. */
       run_id: string;
       /** Canonical skill name the run executed. */
@@ -35579,13 +35579,13 @@ export namespace Schemas {
       /** Prose summary of the run. */
       summary: string;
       /** Findings persisted to the run row, including pre-emit attribution. */
-      findings: SignalAgentRunDetailFindingsItem[];
+      findings: SignalScoutRunDetailFindingsItem[];
       /** Hypotheses the run considered, including ones it explicitly skipped. */
-      hypotheses_considered: SignalAgentRunDetailHypothesesConsideredItem[];
+      hypotheses_considered: SignalScoutRunDetailHypothesesConsideredItem[];
       /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
-      run_metrics: SignalAgentRunDetailRunMetrics;
+      run_metrics: SignalScoutRunDetailRunMetrics;
       /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
-      metadata: SignalAgentRunDetailMetadata;
+      metadata: SignalScoutRunDetailMetadata;
       /**
          * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
          * @nullable
