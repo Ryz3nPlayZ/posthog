@@ -14,7 +14,9 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedScratchpadEntryListApi,
     PaginatedSignalReportListApi,
+    PaginatedSignalScoutRunSummaryListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -24,14 +26,13 @@ import type {
     ScratchpadEntryApi,
     SignalReportApi,
     SignalScoutRunDetailApi,
-    SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsReportsListParams,
+    SignalsScoutMemoryListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
-    SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -161,6 +162,79 @@ export const signalsReportsRetrieve = async (
     })
 }
 
+export const getSignalsScoutMemoryListUrl = (projectId: string, params?: SignalsScoutMemoryListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/memory/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/memory/`
+}
+
+/**
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * @summary Search durable memories
+ */
+export const signalsScoutMemoryList = async (
+    projectId: string,
+    params?: SignalsScoutMemoryListParams,
+    options?: RequestInit
+): Promise<PaginatedScratchpadEntryListApi> => {
+    return apiMutator<PaginatedScratchpadEntryListApi>(getSignalsScoutMemoryListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutMemoryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/memory/`
+}
+
+/**
+ * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * @summary Write or refresh an agent memory
+ */
+export const signalsScoutMemoryCreate = async (
+    projectId: string,
+    rememberRequestApi: RememberRequestApi,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi> => {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutMemoryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/memory/delete/`
+}
+
+/**
+ * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * @summary Delete an agent memory by key
+ */
+export const signalsScoutScratchpadDelete = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
+    })
+}
+
 export const getSignalsScoutProjectProfileGetUrl = (
     projectId: string,
     params?: SignalsScoutProjectProfileGetParams
@@ -212,15 +286,15 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
     projectId: string,
     params?: SignalsScoutRunsListParams,
     options?: RequestInit
-): Promise<SignalScoutRunSummaryApi[]> => {
-    return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsListUrl(projectId, params), {
+): Promise<PaginatedSignalScoutRunSummaryListApi> => {
+    return apiMutator<PaginatedSignalScoutRunSummaryListApi>(getSignalsScoutRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -231,7 +305,7 @@ export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Return the full `SignalScoutRun` row. Status, timing, and error flow from the linked `tasks.TaskRun`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
  * @summary Get a run by ID
  */
 export const signalsScoutRunsRetrieve = async (
@@ -250,7 +324,7 @@ export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.
+ * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
  * @summary Emit a finding for a run
  */
 export const signalsScoutEmitSignal = async (
@@ -264,79 +338,6 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
-    })
-}
-
-export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/scratchpad/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/scratchpad/`
-}
-
-/**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
- * @summary Search the scout scratchpad
- */
-export const signalsScoutScratchpadSearch = async (
-    projectId: string,
-    params?: SignalsScoutScratchpadSearchParams,
-    options?: RequestInit
-): Promise<ScratchpadEntryApi[]> => {
-    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadSearchUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/scratchpad/`
-}
-
-/**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Remember a scratchpad entry
- */
-export const signalsScoutScratchpadRemember = async (
-    projectId: string,
-    rememberRequestApi: RememberRequestApi,
-    options?: RequestInit
-): Promise<ScratchpadEntryApi> => {
-    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadRememberUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(rememberRequestApi),
-    })
-}
-
-export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
-}
-
-/**
- * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Forget a scratchpad entry by key
- */
-export const signalsScoutScratchpadForget = async (
-    projectId: string,
-    forgetRequestApi: ForgetRequestApi,
-    options?: RequestInit
-): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadForgetUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(forgetRequestApi),
     })
 }
 
