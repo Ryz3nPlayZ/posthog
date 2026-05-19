@@ -1,15 +1,15 @@
 ---
-name: signals-agent-llm-analytics
+name: signals-scout-llm-analytics
 description: >
   Focused Signals scout for PostHog projects using LLM analytics. Watches `$ai_generation`,
   `$ai_evaluation`, `$ai_trace` and related events for cost spikes, latency drift, eval
   pass-rate drops, runaway loops, and error rates. Emits findings only when they clear
   the confidence bar; otherwise writes durable memory and closes out empty. Self-contained
-  peer in the signals-agent-* fleet — no dependencies on other skills. Picked uniformly
-  at random by the coordinator alongside `signals-agent-general` and other specialists.
+  peer in the signals-scout-* fleet — no dependencies on other skills. Picked uniformly
+  at random by the coordinator alongside `signals-scout-general` and other specialists.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
-  scopes. Assumes the signals-agent MCP family is available (project-profile-get, runs-list,
+  scopes. Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
   memory-list, runs-findings-create, memory-create) plus standard analytics + LLM tools
   (query-llm-traces-list, query-llm-trace, llma-evaluation-list, get-llm-total-costs-for-project).
 metadata:
@@ -47,13 +47,13 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 Three cheap reads cold-start a run:
 
-- `signals-agent-memory-list` (filter `tags=domain:llm_analytics`) — durable team
+- `signals-scout-scratchpad-list` (filter `tags=domain:llm_analytics`) — durable team
   steering inherited from past LLM-focused runs. **Memories tagged `pattern`, `noise`,
   `addressed`, `dedupe` tell you what's normal, what's already surfaced, what to skip.**
-- `signals-agent-runs-list` (last 7d) — what prior LLM-analytics scouts found and ruled
-  out. Skim summaries; pull `signals-agent-runs-retrieve` only when a summary mentions a
+- `signals-scout-runs-list` (last 7d) — what prior LLM-analytics scouts found and ruled
+  out. Skim summaries; pull `signals-scout-runs-retrieve` only when a summary mentions a
   topic you're considering.
-- `signals-agent-project-profile-get` — `top_events` for the LLM event reach + recent
+- `signals-scout-project-profile-get` — `top_events` for the LLM event reach + recent
   burst metrics, `existing_inbox_reports` for what's already in the inbox.
 
 ### Explore
@@ -125,7 +125,7 @@ which evals deserve more or less weight.
 
 For each candidate finding:
 
-- **Emit** via `signals-agent-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
   Findings carry a hypothesis, evidence, severity, weight ∈ [0, 1], and confidence ∈ [0, 1].
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete trace IDs or
   query results in the evidence.
@@ -176,10 +176,10 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-agent-project-profile-get` — cold orientation snapshot.
-- `signals-agent-memory-list` / `signals-agent-memory-create` — durable steering across runs.
-- `signals-agent-runs-list` / `signals-agent-runs-retrieve` — what prior runs found.
-- `signals-agent-runs-findings-create` — emit a finding.
+- `signals-scout-project-profile-get` — cold orientation snapshot.
+- `signals-scout-scratchpad-list` / `signals-scout-scratchpad-create` — durable steering across runs.
+- `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
+- `signals-scout-runs-findings-create` — emit a finding.
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:exploring-llm-traces` (debugging individual traces, agent decisions, context

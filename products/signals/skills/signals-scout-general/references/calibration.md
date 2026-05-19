@@ -15,7 +15,7 @@ All three are derivable from data you can already pull. No special tool calls.
 
 ### Maturity signals (how much do prior runs already cover this team?)
 
-From `signals-agent-runs-list`:
+From `signals-scout-runs-list`:
 
 - **`run_count`** — total prior runs on this team.
 - **`days_since_first_run`** — when the scout first ran here.
@@ -23,7 +23,7 @@ From `signals-agent-runs-list`:
 - **`findings_emitted_30d`** — sum of `findings.length` across runs in the last 30
   days.
 
-From `signals-agent-memory-list`:
+From `signals-scout-scratchpad-list`:
 
 - **`memory_count`** — total non-expired entries.
 - **`days_since_new_memory`** — gap since the most recent `created_at`. **The
@@ -32,7 +32,7 @@ From `signals-agent-memory-list`:
 
 ### Change signals (is there genuinely new territory?)
 
-From `signals-agent-project-profile-get`:
+From `signals-scout-project-profile-get`:
 
 - **Products in `products_in_use` you don't have a memory entry for.** Memory tags
   are the proxy for "have I touched this domain?" — if `products_in_use` lists
@@ -48,7 +48,7 @@ From `signals-agent-project-profile-get`:
 
 ### Coverage signals (which lenses are stale?)
 
-From `signals-agent-memory-list`, group entries by their `domain:<area>` tag and
+From `signals-scout-scratchpad-list`, group entries by their `domain:<area>` tag and
 read the most recent `created_at` per domain. The lens with the oldest "last
 touched" is the most exploit-locked surface.
 
@@ -74,7 +74,7 @@ and the right posture is obvious, act on it. If you're uncertain, default to
 When posture says _steady-state-with-stale-coverage_ or the every-tenth-run
 wildcard, here's the move:
 
-1. From `signals-agent-memory-list`, find the `domain:<area>` tag with the oldest
+1. From `signals-scout-scratchpad-list`, find the `domain:<area>` tag with the oldest
    most-recent `created_at`. That lens is your wildcard target.
 2. Optionally, also look at `top_events` for an event you've never written memory
    about (filter out ones with `domain:*` memory entries).
@@ -110,13 +110,13 @@ Two habits to keep wildcards productive:
 
 Run inputs to read:
 
-- `signals-agent-runs-list`: 12 prior runs on this team, oldest 14 days ago,
+- `signals-scout-runs-list`: 12 prior runs on this team, oldest 14 days ago,
   newest 1 hour ago, total 4 findings emitted in 30d.
-- `signals-agent-memory-list`: 18 entries; most recent `created_at` is 9 days
+- `signals-scout-scratchpad-list`: 18 entries; most recent `created_at` is 9 days
   ago. Tags include `domain:error_tracking` (most recent: 9 days), `domain:web_analytics`
   (most recent: 11 days), `domain:llm_analytics` (most recent: 12 days). No
   entries tagged `domain:warehouse` or `domain:feature_flags`.
-- `signals-agent-project-profile-get`: `products_in_use` includes
+- `signals-scout-project-profile-get`: `products_in_use` includes
   `error_tracking`, `web_analytics`, `llm_analytics`, `warehouse`,
   `feature_flags`. `external_data_sources` shows two rows, both connected
   more than a month ago. `top_events` looks normal.
@@ -153,10 +153,10 @@ do a wildcard move regardless of what other posture cells suggest.
 
 ### Triggers
 
-- **W1 (lens repetition):** `signals-agent-runs-list` shows the same primary
+- **W1 (lens repetition):** `signals-scout-runs-list` shows the same primary
   lens in 3 of the last 4 completed runs. Extract primary lens from each run's
   summary — the summary always names where the bulk of investigation went.
-- **W2 (memory mass imbalance):** `signals-agent-memory-list` grouped by
+- **W2 (memory mass imbalance):** `signals-scout-scratchpad-list` grouped by
   `domain:<X>` tag shows ≥5× ratio between the most-touched and least-touched
   domain over the last 7d (ignore expired entries). Most-touched is exploited;
   least-touched is the wildcard target.

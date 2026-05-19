@@ -1,6 +1,6 @@
 # Finding schema reference
 
-Read this before your first call to `signals-agent-runs-findings-create`.
+Read this before your first call to `signals-scout-runs-findings-create`.
 The harness validates request shape but doesn't grade prose quality — that's on you.
 
 ## Required fields
@@ -85,12 +85,12 @@ Each entry: `{source_product, summary, entity_id?}`. The harness caps at 20.
 
 - `source_product`: short string identifying where the citation came from. Common values:
   `error_tracking`, `session_replay`, `logs`, `feature_flag`, `experiment`,
-  `web_analytics`, `data_warehouse`, `query_runs`, `signals_agent` (cite a prior run /
+  `web_analytics`, `data_warehouse`, `query_runs`, `signals_scout` (cite a prior run /
   finding), `inbox` (cite a SignalReport).
 - `summary`: one sentence on _why this evidence supports the finding_. The reviewer reads
   this before clicking through.
 - `entity_id`: the citable id. Pin issue UUIDs, recording IDs, dashboard short_ids,
-  insight short_ids, prior `agent_run_id`s, prior `finding_id`s.
+  insight short_ids, prior `scout_run_id`s, prior `finding_id`s.
 
 Include a citation for every concrete claim in the description. If you wrote "434
 occurrences across 434 distinct users", the corresponding evidence entry should have an
@@ -174,7 +174,7 @@ extra:
       summary: >
         HogQL aggregation: 244 + 190 = 434 occurrences across 434 distinct users in
         2026-05-01T11:31-13:22Z.
-    - source_product: signals_agent
+    - source_product: signals_scout
       entity_id: 019de09b-bd36-78a7-b3ff-fba34c252187
       summary: >
         Prior run on 2026-04-30 surfaced the same class of bug (signals refactor missing
@@ -210,7 +210,7 @@ Why this is a good finding:
 - **Pattern explained**: "one hit per user" rules out the alternative explanations.
 - **Lineage**: cites the prior run by id; the inbox can group them.
 - **Recommendation**: actionable — exactly what a human on call would do.
-- **Evidence scope**: 5 entries spanning error_tracking + logs + signals_agent (lineage)
+- **Evidence scope**: 5 entries spanning error_tracking + logs + signals_scout (lineage)
   — diverse sources strengthen confidence.
 - **Dedupe keys**: both issue-id and topic-keyed so a recurrence dedupes either way.
 - **Severity**: P1 justified by 434-user blast.

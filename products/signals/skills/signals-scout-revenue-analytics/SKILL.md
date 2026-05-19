@@ -1,17 +1,17 @@
 ---
-name: signals-agent-revenue-analytics
+name: signals-scout-revenue-analytics
 description: >
   Focused Signals scout for PostHog projects using revenue analytics. Watches the
   derived revenue product for upstream failures (Stripe sync stalls, capture
   regressions), config drift (missing subscription property, currency mix surprises,
   broken Stripe↔person joins, deferred-revenue gaps), and goal-miss escalations.
   Emits findings only when they clear the confidence bar; otherwise writes durable
-  memory and closes out empty. Self-contained peer in the signals-agent-* fleet —
+  memory and closes out empty. Self-contained peer in the signals-scout-* fleet —
   no dependencies on other skills. Picked uniformly at random by the coordinator
-  alongside `signals-agent-general` and other specialists.
+  alongside `signals-scout-general` and other specialists.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
-  scopes. Assumes the signals-agent MCP family (project-profile-get, runs-list,
+  scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
   memory-list, runs-findings-create, memory-create) plus warehouse + analytics tools
   (external-data-sources-list, external-data-sync-logs, query-trends, execute-sql,
   read-data-schema, dashboards-get-all, data-warehouse-data-health-issues-retrieve).
@@ -62,11 +62,11 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-agent-memory-list` (filter `tags=domain:revenue_analytics`) — durable team
+- `signals-scout-scratchpad-list` (filter `tags=domain:revenue_analytics`) — durable team
   steering. Memories tagged `pattern`, `noise`, `addressed`, `dedupe`, plus the
   team's known revenue event name, Stripe source label, currency mix, and goals.
-- `signals-agent-runs-list` (last 7d) — what prior revenue runs found and ruled out.
-- `signals-agent-project-profile-get` — `external_data_sources` (Stripe status),
+- `signals-scout-runs-list` (last 7d) — what prior revenue runs found and ruled out.
+- `signals-scout-project-profile-get` — `external_data_sources` (Stripe status),
   `top_events` (configured revenue event reach), `popular_insights` /
   `recent_dashboards` (revenue chart load-bearingness), `product_intents` (stuck
   onboarding).
@@ -216,7 +216,7 @@ the finding lands with the right context already attached.
 
 For each candidate finding:
 
-- **Emit** via `signals-agent-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete dashboard ids,
   source labels, view names, and quantified impact in the evidence.
 - **Remember** if below the bar but worth carrying forward.
@@ -274,9 +274,9 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-agent-project-profile-get` / `signals-agent-memory-list` /
-  `signals-agent-runs-list` / `signals-agent-runs-retrieve` — orientation + dedupe.
-- `signals-agent-runs-findings-create` / `signals-agent-memory-create` — emit / remember.
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
+- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
 
 For deeper investigation, the sandbox image bakes
 `posthog:auditing-warehouse-data-health` (catches Stripe-source failures upstream of

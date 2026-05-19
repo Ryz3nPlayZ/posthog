@@ -14,7 +14,7 @@ For any candidate finding, classify it against prior runs and memory before emit
 2. **Material update on a prior run** — a prior run covered the topic, but you have new
    evidence: a different source corroborating, a fresh deploy correlation, contradicting
    data, a meaningful escalation in scope. → **Emit fresh, citing the prior `finding_id`
-   in the description and in the evidence list** (`source_product: signals_agent`,
+   in the description and in the evidence list** (`source_product: signals_scout`,
    `entity_id: <prior_finding_id_or_run_id>`). The inbox groups by dedupe key so this is
    how you advance the picture without spamming.
 
@@ -27,17 +27,17 @@ For any candidate finding, classify it against prior runs and memory before emit
 
 ## Reading prior runs efficiently
 
-`signals-agent-runs-list` returns recent run summaries (the prose closing
+`signals-scout-runs-list` returns recent run summaries (the prose closing
 paragraph). Skim the summaries, not the full prompts. A run summary that mentions your
 candidate's entity ID, dedupe-key keyword, or topic is enough to flag for closer reading
-via `signals-agent-runs-retrieve`.
+via `signals-scout-runs-retrieve`.
 
 When in doubt, read the prior run's findings (`get_run.findings`) — they expose the
 exact `dedupe_keys`, evidence ids, and time_range you'd be re-emitting.
 
 ## Reading memory efficiently
 
-`signals-agent-memory-list` defaults to non-expired entries. Sort visually by:
+`signals-scout-scratchpad-list` defaults to non-expired entries. Sort visually by:
 
 - `tags` containing `dedupe`, `noise`, `addressed`, `ignore`, or your candidate topic.
 - Recent `created_at` first.
@@ -114,7 +114,7 @@ These are noise across all PostHog projects. Skip them unless you see a real esc
 - **Pre-known Anthropic upstream errors** — already covered by past memory; don't re-emit
   unless there's a meaningful change in volume or shape.
 
-These are starting heuristics — the team's `SignalMemory` extends this list per-project
+These are starting heuristics — the team's `SignalScratchpad` extends this list per-project
 as the agent learns.
 
 ## Exploration tags (added 2026-05-05)

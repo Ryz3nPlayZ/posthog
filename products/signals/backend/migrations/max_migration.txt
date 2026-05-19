@@ -1,1 +1,1 @@
-0023_signalagentconfig_runs_per_tick
+0023_signalscoutconfig_runs_per_tick

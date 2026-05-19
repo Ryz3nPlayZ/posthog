@@ -1,5 +1,5 @@
 ---
-name: signals-agent-observability-gaps
+name: signals-scout-observability-gaps
 description: >
   Focused Signals scout for finding observability gaps in PostHog itself — significant
   event volumes the team isn't tracking, custom events with no insight or dashboard
@@ -7,11 +7,11 @@ description: >
   related context, critical events with no alerts. Watches the event-stream-vs-saved-
   inventory delta as the team's product evolves and emits findings recommending new
   insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-agent-* fleet — picked uniformly at random by the
-  coordinator alongside `signals-agent-general` and other specialists.
+  Self-contained peer in the signals-scout-* fleet — picked uniformly at random by the
+  coordinator alongside `signals-scout-general` and other specialists.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
-  scopes. Assumes the signals-agent MCP family is available (project-profile-get, runs-list,
+  scopes. Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
   memory-list, runs-findings-create, memory-create) plus standard analytics + entity tools
   (read-data-schema, query-trends, insights-list, dashboards-get-all, event-definitions-list,
   alerts-list, execute-sql).
@@ -58,14 +58,14 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 Three cheap reads cold-start a run:
 
-- `signals-agent-memory-list` (filter `tags=domain:observability_gaps`) — durable team
+- `signals-scout-scratchpad-list` (filter `tags=domain:observability_gaps`) — durable team
   steering inherited from past observability runs. **Memories tagged `pattern`,
   `noise`, `addressed`, `dedupe` tell you what's normal, what's already surfaced, what
   to skip.** Critical here because the same gap should never be re-emitted across runs.
-- `signals-agent-runs-list` (last 14d) — what prior observability-gap scouts found and
-  what was ruled out. Skim summaries; pull `signals-agent-runs-retrieve` only when a
+- `signals-scout-runs-list` (last 14d) — what prior observability-gap scouts found and
+  what was ruled out. Skim summaries; pull `signals-scout-runs-retrieve` only when a
   summary mentions a recommendation you're considering.
-- `signals-agent-project-profile-get` — `top_events` for volume + reach, `popular_insights`
+- `signals-scout-project-profile-get` — `top_events` for volume + reach, `popular_insights`
   for what's already saved, `recent_dashboards` for the dashboards in active use. This
   one read tells you most of what you need to detect gaps.
 
@@ -245,11 +245,11 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-agent-project-profile-get` — cold orientation snapshot. Has `top_events`,
+- `signals-scout-project-profile-get` — cold orientation snapshot. Has `top_events`,
   `popular_insights[13]`, `recent_dashboards`, `existing_inbox_reports` already.
-- `signals-agent-memory-list` / `signals-agent-memory-create` — durable steering.
-- `signals-agent-runs-list` / `signals-agent-runs-retrieve` — what prior runs found.
-- `signals-agent-runs-findings-create` — emit a recommendation finding.
+- `signals-scout-scratchpad-list` / `signals-scout-scratchpad-create` — durable steering.
+- `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
+- `signals-scout-runs-findings-create` — emit a recommendation finding.
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and

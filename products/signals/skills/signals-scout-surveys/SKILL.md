@@ -1,17 +1,17 @@
 ---
-name: signals-agent-surveys
+name: signals-scout-surveys
 description: >
   Focused Signals scout for PostHog projects running surveys. Watches active surveys for
   score regressions (NPS / CSAT / rating drops), response-volume drops, abandonment
   spikes, and targeting drift, AND aggregates open-text responses into recurring themes
   the team should know about (clusters of complaints, praise, feature requests). Emits
   findings only when a theme or anomaly clears the confidence bar; otherwise writes
-  durable memory and closes out empty. Self-contained peer in the signals-agent-* fleet
+  durable memory and closes out empty. Self-contained peer in the signals-scout-* fleet
   — no dependencies on other skills. Picked uniformly at random by the coordinator
-  alongside `signals-agent-general` and other specialists.
+  alongside `signals-scout-general` and other specialists.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
-  scopes. Assumes the signals-agent MCP family (project-profile-get, runs-list,
+  scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
   memory-list, runs-findings-create, memory-create) plus the surveys MCP tools
   (surveys-get-all, survey-get, survey-stats, surveys-global-stats) and standard
   analytics tools (execute-sql, query-trends, read-data-schema, activity-log-list).
@@ -62,12 +62,12 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-agent-memory-list` (filter `tags=domain:surveys`) — durable team steering.
+- `signals-scout-scratchpad-list` (filter `tags=domain:surveys`) — durable team steering.
   Memories tagged `pattern`, `noise`, `addressed`, `dedupe`, plus the team's known
   active survey IDs, primary NPS / CSAT survey, healthy response baselines, and known
   themes already raised.
-- `signals-agent-runs-list` (last 7d) — what prior surveys runs found and ruled out.
-- `signals-agent-project-profile-get` — `top_events` for `survey shown` /
+- `signals-scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
+- `signals-scout-project-profile-get` — `top_events` for `survey shown` /
   `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced
   in the profile inventory; see "When you hit a gap" below).
 
@@ -378,7 +378,7 @@ context already attached.
 
 For each candidate finding:
 
-- **Emit** via `signals-agent-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete survey ids,
   question ids, response counts, score deltas, and (for themes) 2–3 verbatim quotes
   in the evidence. Sample-size matters here more than other domains — a finding on
@@ -462,9 +462,9 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-agent-project-profile-get` / `signals-agent-memory-list` /
-  `signals-agent-runs-list` / `signals-agent-runs-retrieve` — orientation + dedupe.
-- `signals-agent-runs-findings-create` / `signals-agent-memory-create` — emit / remember.
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
+- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
 
 ### When you hit a gap
 
@@ -473,7 +473,7 @@ around in-skill:
 
 - **Project profile doesn't include surveys.** Cold-start orientation has to call
   `surveys-get-all` directly. Adding a `_surveys` builder to
-  `products/signals/backend/agent_harness/profile/builders.py` (a few rows: active
+  `products/signals/backend/scout_harness/profile/builders.py` (a few rows: active
   count, top surveys by recent volume, primary NPS / CSAT survey if any) would let
   every scout — not just this one — see surveys at orientation time. Worth a P3.
 - **Survey summarization isn't MCP-callable.** The product has a summarization

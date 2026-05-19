@@ -409,7 +409,7 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
         blank=True,
         default=None,
     )
-    # How many `signals-agent-*` skills to fan out per coordinator tick. Sampled
+    # How many `signals-scout-*` skills to fan out per coordinator tick. Sampled
     # without replacement from the team's candidate pool — N > available clamps
     # to whatever the team has, N = 0 contributes no runs this tick (use this
     # to soft-pause a team without flipping `enabled`). Default 1 preserves the

@@ -1,15 +1,15 @@
 ---
-name: signals-agent-error-tracking
+name: signals-scout-error-tracking
 description: >
   Focused Signals scout for PostHog projects using error tracking. Watches `$exception`
   bursts, stuck loops, multi-fingerprint clusters, status regressions, and stack-trace
   activity-name patterns. Emits findings only when they clear the confidence bar;
   otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-agent-* fleet — no dependencies on other skills. Picked uniformly at random
-  by the coordinator alongside `signals-agent-general` and other specialists.
+  signals-scout-* fleet — no dependencies on other skills. Picked uniformly at random
+  by the coordinator alongside `signals-scout-general` and other specialists.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
-  scopes. Assumes the signals-agent MCP family (project-profile-get, runs-list,
+  scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
   memory-list, runs-findings-create, memory-create) plus error-tracking + analytics
   tools (error-tracking-issues-list, error-tracking-issues-retrieve, execute-sql,
   activity-log-list, inbox-reports-list).
@@ -50,12 +50,12 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-agent-memory-list` (filter `tags=domain:error_tracking`) — durable team
+- `signals-scout-scratchpad-list` (filter `tags=domain:error_tracking`) — durable team
   steering from past error-tracking runs. Memories tagged `pattern`, `noise`,
   `addressed`, `dedupe` tell you what's normal, what's already surfaced, what to skip.
-- `signals-agent-runs-list` (last 7d) — what prior error-tracking scouts found and
+- `signals-scout-runs-list` (last 7d) — what prior error-tracking scouts found and
   ruled out.
-- `signals-agent-project-profile-get` — the `$exception` row in `top_events` carries
+- `signals-scout-project-profile-get` — the `$exception` row in `top_events` carries
   `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`. Pattern the
   count/users ratio against the table below.
 
@@ -137,7 +137,7 @@ and burn less time on cold-start exploration.
 
 For each candidate finding:
 
-- **Emit** via `signals-agent-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete issue ids,
   hourly count, distinct-user counts in the evidence.
 - **Remember** if below the bar but worth carrying forward.
@@ -185,9 +185,9 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-agent-project-profile-get` / `signals-agent-memory-list` /
-  `signals-agent-runs-list` / `signals-agent-runs-retrieve` — orientation + dedupe.
-- `signals-agent-runs-findings-create` / `signals-agent-memory-create` — emit / remember.
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
+- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
 
 ## When to stop
 

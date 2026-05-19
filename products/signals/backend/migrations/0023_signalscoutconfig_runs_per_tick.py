@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="signalagentconfig",
+            model_name="signalscoutconfig",
             name="runs_per_tick",
             field=models.PositiveSmallIntegerField(
                 default=1,
