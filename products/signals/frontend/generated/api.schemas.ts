@@ -8,9 +8,9 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * `SignalMemory` projection used by `search-memory` and `remember`.
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
-export interface MemoryEntryApi {
+export interface ScratchpadEntryApi {
     /** Agent-chosen semantic key, unique per team. */
     key: string
     /** Prose content for prompt injection. */
@@ -41,13 +41,13 @@ export interface MemoryEntryApi {
     created_by_run_id: string | null
 }
 
-export interface PaginatedMemoryEntryListApi {
+export interface PaginatedScratchpadEntryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: MemoryEntryApi[]
+    results: ScratchpadEntryApi[]
 }
 
 /**
@@ -93,12 +93,12 @@ export interface ForgetResponseApi {
 }
 
 /**
- * Lightweight projection of a `SignalAgentRun` row used by `search-recent-runs`.
+ * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  */
-export interface SignalAgentRunSummaryApi {
+export interface SignalScoutRunSummaryApi {
     /** UUID of the run row. */
     run_id: string
-    /** Canonical skill name the run executed (e.g. `signals-agent-general`). */
+    /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
@@ -132,33 +132,33 @@ export interface SignalAgentRunSummaryApi {
     task_url?: string | null
 }
 
-export interface PaginatedSignalAgentRunSummaryListApi {
+export interface PaginatedSignalScoutRunSummaryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalAgentRunSummaryApi[]
+    results: SignalScoutRunSummaryApi[]
 }
 
-export type SignalAgentRunDetailApiFindingsItem = { [key: string]: unknown }
+export type SignalScoutRunDetailApiFindingsItem = { [key: string]: unknown }
 
-export type SignalAgentRunDetailApiHypothesesConsideredItem = { [key: string]: unknown }
+export type SignalScoutRunDetailApiHypothesesConsideredItem = { [key: string]: unknown }
 
 /**
  * Measured quantities about how the run went, e.g. {runtime_s, findings}.
  */
-export type SignalAgentRunDetailApiRunMetrics = { [key: string]: number }
+export type SignalScoutRunDetailApiRunMetrics = { [key: string]: number }
 
 /**
  * Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).
  */
-export type SignalAgentRunDetailApiMetadata = { [key: string]: unknown }
+export type SignalScoutRunDetailApiMetadata = { [key: string]: unknown }
 
 /**
- * Full `SignalAgentRun` projection used by `get-run`. Includes structured payloads.
+ * Full `SignalScoutRun` projection used by `get-run`. Includes structured payloads.
  */
-export interface SignalAgentRunDetailApi {
+export interface SignalScoutRunDetailApi {
     /** UUID of the run row. */
     run_id: string
     /** Canonical skill name the run executed. */
@@ -177,13 +177,13 @@ export interface SignalAgentRunDetailApi {
     /** Prose summary of the run. */
     summary: string
     /** Findings persisted to the run row, including pre-emit attribution. */
-    findings: SignalAgentRunDetailApiFindingsItem[]
+    findings: SignalScoutRunDetailApiFindingsItem[]
     /** Hypotheses the run considered, including ones it explicitly skipped. */
-    hypotheses_considered: SignalAgentRunDetailApiHypothesesConsideredItem[]
+    hypotheses_considered: SignalScoutRunDetailApiHypothesesConsideredItem[]
     /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
-    run_metrics: SignalAgentRunDetailApiRunMetrics
+    run_metrics: SignalScoutRunDetailApiRunMetrics
     /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
-    metadata: SignalAgentRunDetailApiMetadata
+    metadata: SignalScoutRunDetailApiMetadata
     /**
      * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
      * @nullable
@@ -202,7 +202,7 @@ export interface SignalAgentRunDetailApi {
 }
 
 /**
- * One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.
+ * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
  */
 export interface EvidenceEntryApi {
     /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
@@ -525,7 +525,7 @@ export interface SignalUserAutonomyConfigApi {
     readonly updated_at: string
 }
 
-export type SignalsAgentMemoryListParams = {
+export type SignalsScoutMemoryListParams = {
     /**
      * Include expired `agent_inference` entries (default false). Use for audit/debug only.
      */
@@ -550,7 +550,7 @@ export type SignalsAgentMemoryListParams = {
     text?: string
 }
 
-export type SignalsAgentRunsListParams = {
+export type SignalsScoutRunsListParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

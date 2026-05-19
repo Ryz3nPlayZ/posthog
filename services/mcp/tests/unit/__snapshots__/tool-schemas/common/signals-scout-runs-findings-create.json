@@ -21,7 +21,7 @@
         "evidence": {
             "description": "Citations supporting the finding. Capped at 20 entries.",
             "items": {
-                "description": "One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.",
+                "description": "One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.",
                 "properties": {
                     "entity_id": {
                         "anyOf": [

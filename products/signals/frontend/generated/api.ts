@@ -13,22 +13,22 @@ import type {
     EmitFindingResponseApi,
     ForgetRequestApi,
     ForgetResponseApi,
-    MemoryEntryApi,
-    PaginatedMemoryEntryListApi,
+    ScratchpadEntryApi,
+    PaginatedScratchpadEntryListApi,
     PaginatedPauseStateResponseListApi,
-    PaginatedSignalAgentRunSummaryListApi,
+    PaginatedSignalScoutRunSummaryListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
     RememberRequestApi,
-    SignalAgentRunDetailApi,
+    SignalScoutRunDetailApi,
     SignalReportApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
-    SignalsAgentMemoryListParams,
-    SignalsAgentRunsListParams,
+    SignalsScoutMemoryListParams,
+    SignalsScoutRunsListParams,
     SignalsProcessingListParams,
     SignalsReportsListParams,
     SignalsSourceConfigsListParams,
@@ -51,7 +51,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSignalsAgentMemoryListUrl = (projectId: string, params?: SignalsAgentMemoryListParams) => {
+export const getSignalsScoutMemoryListUrl = (projectId: string, params?: SignalsScoutMemoryListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -68,21 +68,21 @@ export const getSignalsAgentMemoryListUrl = (projectId: string, params?: Signals
 }
 
 /**
- * Return `SignalMemory` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
  * @summary Search durable memories
  */
-export const signalsAgentMemoryList = async (
+export const signalsScoutScratchpadList = async (
     projectId: string,
-    params?: SignalsAgentMemoryListParams,
+    params?: SignalsScoutMemoryListParams,
     options?: RequestInit
-): Promise<PaginatedMemoryEntryListApi> => {
-    return apiMutator<PaginatedMemoryEntryListApi>(getSignalsAgentMemoryListUrl(projectId, params), {
+): Promise<PaginatedScratchpadEntryListApi> => {
+    return apiMutator<PaginatedScratchpadEntryListApi>(getSignalsScoutMemoryListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsAgentMemoryCreateUrl = (projectId: string) => {
+export const getSignalsScoutMemoryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/agent/memory/`
 }
 
@@ -90,12 +90,12 @@ export const getSignalsAgentMemoryCreateUrl = (projectId: string) => {
  * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
  * @summary Write or refresh an agent memory
  */
-export const signalsAgentMemoryCreate = async (
+export const signalsScoutScratchpadCreate = async (
     projectId: string,
     rememberRequestApi: RememberRequestApi,
     options?: RequestInit
-): Promise<MemoryEntryApi> => {
-    return apiMutator<MemoryEntryApi>(getSignalsAgentMemoryCreateUrl(projectId), {
+): Promise<ScratchpadEntryApi> => {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutMemoryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -103,7 +103,7 @@ export const signalsAgentMemoryCreate = async (
     })
 }
 
-export const getSignalsAgentMemoryDeleteUrl = (projectId: string) => {
+export const getSignalsScoutMemoryDeleteUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/agent/memory/delete/`
 }
 
@@ -111,12 +111,12 @@ export const getSignalsAgentMemoryDeleteUrl = (projectId: string) => {
  * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
  * @summary Delete an agent memory by key
  */
-export const signalsAgentMemoryDelete = async (
+export const signalsScoutScratchpadDelete = async (
     projectId: string,
     forgetRequestApi: ForgetRequestApi,
     options?: RequestInit
 ): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsAgentMemoryDeleteUrl(projectId), {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutMemoryDeleteUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -124,7 +124,7 @@ export const signalsAgentMemoryDelete = async (
     })
 }
 
-export const getSignalsAgentRunsListUrl = (projectId: string, params?: SignalsAgentRunsListParams) => {
+export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsScoutRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -141,54 +141,54 @@ export const getSignalsAgentRunsListUrl = (projectId: string, params?: SignalsAg
 }
 
 /**
- * Return the most recent `SignalAgentRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
  * @summary Search recent agent runs
  */
-export const signalsAgentRunsList = async (
+export const signalsScoutRunsList = async (
     projectId: string,
-    params?: SignalsAgentRunsListParams,
+    params?: SignalsScoutRunsListParams,
     options?: RequestInit
-): Promise<PaginatedSignalAgentRunSummaryListApi> => {
-    return apiMutator<PaginatedSignalAgentRunSummaryListApi>(getSignalsAgentRunsListUrl(projectId, params), {
+): Promise<PaginatedSignalScoutRunSummaryListApi> => {
+    return apiMutator<PaginatedSignalScoutRunSummaryListApi>(getSignalsScoutRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsAgentRunsRetrieveUrl = (projectId: string, id: string) => {
+export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/agent/runs/${id}/`
 }
 
 /**
- * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
  * @summary Get a run by ID
  */
-export const signalsAgentRunsRetrieve = async (
+export const signalsScoutRunsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<SignalAgentRunDetailApi> => {
-    return apiMutator<SignalAgentRunDetailApi>(getSignalsAgentRunsRetrieveUrl(projectId, id), {
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsAgentRunsFindingsCreateUrl = (projectId: string, id: string) => {
+export const getSignalsScoutRunsFindingsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/agent/runs/${id}/findings/`
 }
 
 /**
- * Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
+ * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
  * @summary Emit a finding for a run
  */
-export const signalsAgentRunsFindingsCreate = async (
+export const signalsScoutRunsFindingsCreate = async (
     projectId: string,
     id: string,
     emitFindingRequestApi: EmitFindingRequestApi,
     options?: RequestInit
 ): Promise<EmitFindingResponseApi> => {
-    return apiMutator<EmitFindingResponseApi>(getSignalsAgentRunsFindingsCreateUrl(projectId, id), {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutRunsFindingsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

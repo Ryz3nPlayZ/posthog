@@ -3,13 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    SignalsAgentMemoryCreateBody,
-    SignalsAgentMemoryDeleteBody,
-    SignalsAgentMemoryListQueryParams,
-    SignalsAgentRunsFindingsCreateBody,
-    SignalsAgentRunsFindingsCreateParams,
-    SignalsAgentRunsListQueryParams,
-    SignalsAgentRunsRetrieveParams,
+    SignalsScoutMemoryCreateBody,
+    SignalsScoutMemoryDeleteBody,
+    SignalsScoutMemoryListQueryParams,
+    SignalsScoutRunsFindingsCreateBody,
+    SignalsScoutRunsFindingsCreateParams,
+    SignalsScoutRunsListQueryParams,
+    SignalsScoutRunsRetrieveParams,
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsSourceConfigsListQueryParams,
@@ -144,12 +144,12 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
     },
 })
 
-const SignalsAgentMemoryCreateSchema = SignalsAgentMemoryCreateBody
+const SignalsScoutMemoryCreateSchema = SignalsScoutMemoryCreateBody
 
-const signalsAgentMemoryCreate = (): ToolBase<typeof SignalsAgentMemoryCreateSchema, Schemas.MemoryEntry> => ({
-    name: 'signals-agent-memory-create',
-    schema: SignalsAgentMemoryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryCreateSchema>) => {
+const signalsScoutScratchpadCreate = (): ToolBase<typeof SignalsScoutMemoryCreateSchema, Schemas.ScratchpadEntry> => ({
+    name: 'signals-scout-scratchpad-create',
+    schema: SignalsScoutMemoryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutMemoryCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.key !== undefined) {
@@ -167,7 +167,7 @@ const signalsAgentMemoryCreate = (): ToolBase<typeof SignalsAgentMemoryCreateSch
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
         }
-        const result = await context.api.request<Schemas.MemoryEntry>({
+        const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
             body,
@@ -176,12 +176,12 @@ const signalsAgentMemoryCreate = (): ToolBase<typeof SignalsAgentMemoryCreateSch
     },
 })
 
-const SignalsAgentMemoryDeleteSchema = SignalsAgentMemoryDeleteBody
+const SignalsScoutMemoryDeleteSchema = SignalsScoutMemoryDeleteBody
 
-const signalsAgentMemoryDelete = (): ToolBase<typeof SignalsAgentMemoryDeleteSchema, Schemas.ForgetResponse> => ({
-    name: 'signals-agent-memory-delete',
-    schema: SignalsAgentMemoryDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryDeleteSchema>) => {
+const signalsScoutScratchpadDelete = (): ToolBase<typeof SignalsScoutMemoryDeleteSchema, Schemas.ForgetResponse> => ({
+    name: 'signals-scout-scratchpad-delete',
+    schema: SignalsScoutMemoryDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutMemoryDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.key !== undefined) {
@@ -196,17 +196,17 @@ const signalsAgentMemoryDelete = (): ToolBase<typeof SignalsAgentMemoryDeleteSch
     },
 })
 
-const SignalsAgentMemoryListSchema = SignalsAgentMemoryListQueryParams
+const SignalsScoutMemoryListSchema = SignalsScoutMemoryListQueryParams
 
-const signalsAgentMemoryList = (): ToolBase<
-    typeof SignalsAgentMemoryListSchema,
-    WithPostHogUrl<Schemas.PaginatedMemoryEntryList>
+const signalsScoutScratchpadList = (): ToolBase<
+    typeof SignalsScoutMemoryListSchema,
+    WithPostHogUrl<Schemas.PaginatedScratchpadEntryList>
 > => ({
-    name: 'signals-agent-memory-list',
-    schema: SignalsAgentMemoryListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryListSchema>) => {
+    name: 'signals-scout-scratchpad-list',
+    schema: SignalsScoutMemoryListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutMemoryListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedMemoryEntryList>({
+        const result = await context.api.request<Schemas.PaginatedScratchpadEntryList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
             query: {
@@ -236,17 +236,17 @@ const signalsAgentMemoryList = (): ToolBase<
     },
 })
 
-const SignalsAgentRunsFindingsCreateSchema = SignalsAgentRunsFindingsCreateParams.omit({ project_id: true }).extend(
-    SignalsAgentRunsFindingsCreateBody.shape
+const SignalsScoutRunsFindingsCreateSchema = SignalsScoutRunsFindingsCreateParams.omit({ project_id: true }).extend(
+    SignalsScoutRunsFindingsCreateBody.shape
 )
 
-const signalsAgentRunsFindingsCreate = (): ToolBase<
-    typeof SignalsAgentRunsFindingsCreateSchema,
+const signalsScoutRunsFindingsCreate = (): ToolBase<
+    typeof SignalsScoutRunsFindingsCreateSchema,
     Schemas.EmitFindingResponse
 > => ({
-    name: 'signals-agent-runs-findings-create',
-    schema: SignalsAgentRunsFindingsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsFindingsCreateSchema>) => {
+    name: 'signals-scout-runs-findings-create',
+    schema: SignalsScoutRunsFindingsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsFindingsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.description !== undefined) {
@@ -288,17 +288,17 @@ const signalsAgentRunsFindingsCreate = (): ToolBase<
     },
 })
 
-const SignalsAgentRunsListSchema = SignalsAgentRunsListQueryParams
+const SignalsScoutRunsListSchema = SignalsScoutRunsListQueryParams
 
-const signalsAgentRunsList = (): ToolBase<
-    typeof SignalsAgentRunsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalAgentRunSummaryList>
+const signalsScoutRunsList = (): ToolBase<
+    typeof SignalsScoutRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSignalScoutRunSummaryList>
 > => ({
-    name: 'signals-agent-runs-list',
-    schema: SignalsAgentRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsListSchema>) => {
+    name: 'signals-scout-runs-list',
+    schema: SignalsScoutRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalAgentRunSummaryList>({
+        const result = await context.api.request<Schemas.PaginatedSignalScoutRunSummaryList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/`,
             query: {
@@ -327,14 +327,14 @@ const signalsAgentRunsList = (): ToolBase<
     },
 })
 
-const SignalsAgentRunsRetrieveSchema = SignalsAgentRunsRetrieveParams.omit({ project_id: true })
+const SignalsScoutRunsRetrieveSchema = SignalsScoutRunsRetrieveParams.omit({ project_id: true })
 
-const signalsAgentRunsRetrieve = (): ToolBase<typeof SignalsAgentRunsRetrieveSchema, Schemas.SignalAgentRunDetail> => ({
-    name: 'signals-agent-runs-retrieve',
-    schema: SignalsAgentRunsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsRetrieveSchema>) => {
+const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSchema, Schemas.SignalScoutRunDetail> => ({
+    name: 'signals-scout-runs-retrieve',
+    schema: SignalsScoutRunsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalAgentRunDetail>({
+        const result = await context.api.request<Schemas.SignalScoutRunDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/${encodeURIComponent(String(params.id))}/`,
         })
@@ -347,10 +347,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
-    'signals-agent-memory-create': signalsAgentMemoryCreate,
-    'signals-agent-memory-delete': signalsAgentMemoryDelete,
-    'signals-agent-memory-list': signalsAgentMemoryList,
-    'signals-agent-runs-findings-create': signalsAgentRunsFindingsCreate,
-    'signals-agent-runs-list': signalsAgentRunsList,
-    'signals-agent-runs-retrieve': signalsAgentRunsRetrieve,
+    'signals-scout-scratchpad-create': signalsScoutScratchpadCreate,
+    'signals-scout-scratchpad-delete': signalsScoutScratchpadDelete,
+    'signals-scout-scratchpad-list': signalsScoutScratchpadList,
+    'signals-scout-runs-findings-create': signalsScoutRunsFindingsCreate,
+    'signals-scout-runs-list': signalsScoutRunsList,
+    'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
 }
