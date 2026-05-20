@@ -35956,7 +35956,7 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "signals_agent"
+                "signals_scout"
             ],
             "type": "string"
         },
