@@ -529,6 +529,52 @@ async def test_self_heal_threshold_is_workflow_ceiling_not_team_runtime_override
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_self_heal_keys_on_team_skill_not_config(ateam, aerrors_skill):
+    """Regression: the self-heal must reach orphaned RUNNING rows whose `scout_config_id` no
+    longer matches the current config — e.g. after a config delete + recreate, since the FK
+    is `SET_NULL`. The partial unique index is `(team, skill_name) WHERE status='running'`,
+    so keying the self-heal on `scout_config_id` would leave the orphaned row un-healable
+    while the constraint kept blocking every subsequent insert for the same (team, skill).
+    """
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    orphaned = await database_sync_to_async(SignalScoutRun.objects.create)(
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+        status=SignalScoutRun.Status.RUNNING,
+        metadata={"limits": {"max_runtime_s": 1800}},
+    )
+    await database_sync_to_async(SignalScoutRun.objects.filter(id=orphaned.id).update)(
+        started_at=datetime.now(UTC) - timedelta(seconds=4000),
+    )
+    # Delete the config — FK is SET_NULL, so the orphaned row's `scout_config_id` flips to
+    # NULL while the row itself survives.
+    await database_sync_to_async(config.delete)()
+    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=orphaned.id)
+    assert refreshed.scout_config_id is None
+    # The runner needs a current config to spawn the fresh run, so recreate one (this is
+    # the exact scenario the bug describes — config got re-created out from under a row
+    # that's still RUNNING from the previous incarnation).
+    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+
+    async def fake_spawn(**_kwargs):
+        return "fresh run completed"
+
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The orphaned row (now with null scout_config_id) got healed despite the FK mismatch.
+    healed = await database_sync_to_async(SignalScoutRun.objects.get)(id=orphaned.id)
+    assert healed.status == SignalScoutRun.Status.FAILED
+    assert "auto-healed" in healed.summary.lower()
+    # Fresh run proceeded — the partial unique constraint isn't blocking us anymore.
+    assert result.status == SignalScoutRun.Status.COMPLETED
+    assert result.run_id is not None and result.run_id != str(orphaned.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_activity_returns_completed_outcome(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(

@@ -108,8 +108,12 @@ async def arun_signals_scout(
     # rows left behind when a worker / sandbox died before the cleanup path could run
     # (e.g. SIGTERM during file-watcher restart, kernel OOM, asyncio cancellation that
     # escaped the harness). Without this, a single stale row blocks every subsequent
-    # coordinator tick from spawning a fresh run.
-    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, config.id)
+    # coordinator tick from spawning a fresh run. Keyed on `(team, skill_name)` to match
+    # the partial unique index `signal_scout_run_one_running_per_team_skill` — keying on
+    # `config_id` would leave orphaned rows with a stale or null `scout_config_id` (e.g.
+    # after a config delete + recreate, since the FK is `SET_NULL`) un-healable while the
+    # DB constraint keeps blocking new inserts for the same (team, skill).
+    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, skill_name)
 
     # Skip-if-running guard, keyed on (team, skill_name). Different skills for the
     # same team are allowed to run concurrently — `runs_per_tick > 1` relies on this.
@@ -324,7 +328,7 @@ def _has_running_run(*, team_id: int, config_id: str, skill_name: str) -> bool:
 _STALE_RUN_MULTIPLIER = 2
 
 
-def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
+def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     """Reconcile RUNNING rows older than `_STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S`
     to FAILED.
 
@@ -337,11 +341,15 @@ def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
     `max_runtime_s = 7200s` doesn't get hours of false-blocking from an orphan that
     Temporal would have killed at ~31 minutes anyway.
 
+    Keyed on `(team_id, skill_name)` to mirror the partial unique index — keying on
+    `scout_config_id` would leave orphaned rows with a stale or null FK un-healable while
+    the same constraint kept blocking new inserts for the same (team, skill).
+
     Idempotent: safe to call from any number of concurrent coordinator activities.
     """
     candidates = SignalScoutRun.objects.filter(
         team_id=team_id,
-        scout_config_id=config_id,
+        skill_name=skill_name,
         status=SignalScoutRun.Status.RUNNING,
     ).only("id", "started_at", "metadata")
     now = timezone.now()

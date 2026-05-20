@@ -254,10 +254,10 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         _authenticate_as_scout(self)
 
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/memory/"
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
     def _delete_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/memory/delete/"
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/"
 
     def test_remember_creates_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked"}
@@ -431,6 +431,16 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
+            "recent_activity",
             "recent_dashboards",
+            "recent_surveys",
+            "recent_feature_flags",
+            "recent_experiments",
+            "recent_alerts",
+            "recent_hog_functions",
+            "recent_hog_flows",
+            "recent_notebooks",
+            "recent_cohorts",
+            "recent_actions",
             "top_events",
         }
