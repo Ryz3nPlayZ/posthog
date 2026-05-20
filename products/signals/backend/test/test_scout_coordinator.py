@@ -143,6 +143,8 @@ async def test_explicit_skill_list_filters_to_existing_only(ateam):
     assert [p.skill_name for p in output.planned_runs] == ["signals-scout-errors"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_sampling_picks_one_uniformly_from_candidates(ateam):
     """With multiple candidates on a single team and `runs_per_tick=1` (default),
     the coordinator picks exactly one via `random.sample`. Patching gives us
