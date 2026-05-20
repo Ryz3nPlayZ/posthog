@@ -23988,49 +23988,6 @@ export namespace Schemas {
       results: ScoreDefinition[];
     }
 
-    /**
-     * `SignalScratchpad` projection used by `search-memory` and `remember`.
-     */
-    export interface ScratchpadEntry {
-      /** Agent-chosen semantic key, unique per team. */
-      key: string;
-      /** Prose content for prompt injection. */
-      content: string;
-      /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
-      authority: string;
-      /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
-      tags: string[];
-      /**
-         * ISO-8601 creation timestamp.
-         * @nullable
-         */
-      created_at: string | null;
-      /**
-         * ISO-8601 last-write timestamp.
-         * @nullable
-         */
-      updated_at: string | null;
-      /**
-         * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-         * @nullable
-         */
-      expires_at: string | null;
-      /**
-         * Run that wrote this entry, or null if human-authored.
-         * @nullable
-         */
-      created_by_run_id: string | null;
-    }
-
-    export interface PaginatedScratchpadEntryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ScratchpadEntry[];
-    }
-
     export interface SessionGroupSummaryMinimal {
       readonly id: string;
       /** Title of the group session summary */
@@ -24281,55 +24238,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReport[];
-    }
-
-    /**
-     * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
-     */
-    export interface SignalScoutRunSummary {
-      /** UUID of the run row. */
-      run_id: string;
-      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
-      skill_name: string;
-      /** Skill version snapshotted at run start. */
-      skill_version: number;
-      /** Run status: scheduled | running | completed | failed | abandoned. */
-      status: string;
-      /** ISO-8601 timestamp the run row was inserted. */
-      started_at: string;
-      /**
-         * ISO-8601 timestamp the run finalized; null while still running.
-         * @nullable
-         */
-      completed_at: string | null;
-      /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
-      summary: string;
-      /** Number of finding entries persisted on the run row. */
-      findings_count: number;
-      /**
-         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
-         * @nullable
-         */
-      task_id?: string | null;
-      /**
-         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
-         * @nullable
-         */
-      task_run_id?: string | null;
-      /**
-         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
-         * @nullable
-         */
-      task_url?: string | null;
-    }
-
-    export interface PaginatedSignalScoutRunSummaryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SignalScoutRunSummary[];
     }
 
     /**
@@ -35252,6 +35160,40 @@ export namespace Schemas {
     }
 
     /**
+     * `SignalScratchpad` projection used by `search-memory` and `remember`.
+     */
+    export interface ScratchpadEntry {
+      /** Agent-chosen semantic key, unique per team. */
+      key: string;
+      /** Prose content for prompt injection. */
+      content: string;
+      /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
+      authority: string;
+      /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
+      tags: string[];
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 last-write timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Run that wrote this entry, or null if human-authored.
+         * @nullable
+         */
+      created_by_run_id: string | null;
+    }
+
+    /**
      * * `none` - none
     * `warning` - warning
     * `danger` - danger
@@ -35586,6 +35528,46 @@ export namespace Schemas {
       run_metrics: SignalScoutRunDetailRunMetrics;
       /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
       metadata: SignalScoutRunDetailMetadata;
+      /**
+         * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+         * @nullable
+         */
+      task_url?: string | null;
+    }
+
+    /**
+     * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+     */
+    export interface SignalScoutRunSummary {
+      /** UUID of the run row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Run status: scheduled | running | completed | failed | abandoned. */
+      status: string;
+      /** ISO-8601 timestamp the run row was inserted. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the run finalized; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
+      summary: string;
+      /** Number of finding entries persisted on the run row. */
+      findings_count: number;
       /**
          * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
          * @nullable
@@ -46173,52 +46155,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalsAgentMemoryListParams = {
-    /**
-     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
-     */
-    include_expired?: boolean;
-    /**
-     * Max rows to return (default 20, hard cap 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
-     */
-    tags?: string[];
-    /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
-     */
-    text?: string;
-    };
-
-    export type SignalsAgentRunsListParams = {
-    /**
-     * Max rows to return (default 20, hard cap 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
-     */
-    since?: string;
-    /**
-     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
-     */
-    text?: string;
-    };
-
     export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -46259,6 +46195,44 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    };
+
+    export type SignalsScoutRunsListParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
+     */
+    since?: string;
+    /**
+     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
+     */
+    text?: string;
+    };
+
+    export type SignalsScoutScratchpadListParams = {
+    /**
+     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
+     */
+    include_expired?: boolean;
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
+     */
+    tags?: string[];
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string;
     };
 
     export type SignalsSourceConfigsListParams = {
