@@ -106,8 +106,13 @@ class Command(BaseCommand):
             except Team.DoesNotExist:
                 raise CommandError(f"Team {team_id} not found")
         # all_enabled — pull every team that has at least one enabled SignalScoutConfig.
+        # `.unscoped()` is intentional: this is a cross-team management scan, same as the
+        # Temporal coordinator. The default `.objects` manager is fail-closed
+        # (TeamScopedRootMixin) so without the unscoped sibling it would either raise or
+        # silently return only the team in the current scope context, hiding teams the
+        # operator is trying to sync.
         # `select_related("team")` to avoid an N+1 in the loop above.
-        configs = SignalScoutConfig.objects.filter(enabled=True).select_related("team").order_by("team__id")
+        configs = SignalScoutConfig.objects.unscoped().filter(enabled=True).select_related("team").order_by("team__id")
         # Distinct teams only; one config per team is the norm but we don't depend on it.
         seen: set[int] = set()
         teams: list[Team] = []
