@@ -109,91 +109,6 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
- * `SignalScratchpad` projection used by `search-memory` and `remember`.
- */
-export interface ScratchpadEntryApi {
-    /** Agent-chosen semantic key, unique per team. */
-    key: string
-    /** Prose content for prompt injection. */
-    content: string
-    /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
-    authority: string
-    /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
-    tags: string[]
-    /**
-     * ISO-8601 creation timestamp.
-     * @nullable
-     */
-    created_at: string | null
-    /**
-     * ISO-8601 last-write timestamp.
-     * @nullable
-     */
-    updated_at: string | null
-    /**
-     * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-     * @nullable
-     */
-    expires_at: string | null
-    /**
-     * Run that wrote this entry, or null if human-authored.
-     * @nullable
-     */
-    created_by_run_id: string | null
-}
-
-export interface PaginatedScratchpadEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScratchpadEntryApi[]
-}
-
-/**
- * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
- */
-export interface RememberRequestApi {
-    /**
-     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
-     * @maxLength 300
-     */
-    key: string
-    /** Prose to write. Read verbatim into future prompts. */
-    content: string
-    /** Tags for later search. Empty/whitespace tags are dropped. */
-    tags?: string[]
-    /**
-     * Days until expiry (default 7, hard cap 90).
-     * @minimum 1
-     * @maximum 90
-     */
-    ttl_days?: number
-    /**
-     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
-     * @nullable
-     */
-    run_id?: string | null
-}
-
-/**
- * Request body for `forget`. Only `agent_inference` keys can be deleted.
- */
-export interface ForgetRequestApi {
-    /**
-     * Memory key to delete.
-     * @maxLength 300
-     */
-    key: string
-}
-
-export interface ForgetResponseApi {
-    /** Whether a row was actually removed (false if the key didn't exist). */
-    deleted: boolean
-}
-
-/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -367,8 +282,28 @@ export interface ProjectProfileInventoryApi {
     signal_source_configs: SignalSourceConfigsBucketsApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
+    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+    recent_activity: unknown
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
+    /** Surveys orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated surveys with `id`, `name`, `type`, `status` (draft / running / stopped / archived), and `updated_at`. */
+    recent_surveys: unknown
+    /** Feature flag orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated non-deleted flags with `id`, `key`, `name`, `active`, and `updated_at`. */
+    recent_feature_flags: unknown
+    /** Experiment orientation: `{total_count, active_count, recent: [...]}`. The feature_flag key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
+    recent_experiments: unknown
+    /** Alert orientation: `{total_count, active_count, recent: [...]}` covering the 5 most recently updated alerts with their state and threshold metadata. */
+    recent_alerts: unknown
+    /** Hog function orientation: `{total_count, active_count, recent: [...]}` for destinations / transformations the team has wired up via the CDP pipelines. */
+    recent_hog_functions: unknown
+    /** Hog flow orientation: `{total_count, active_count, recent: [...]}` for the team's currently configured automation flows. */
+    recent_hog_flows: unknown
+    /** Notebook orientation: `{total_count, recent: [...]}` with the 5 most recently updated notebooks — useful signal for what the team has been investigating. */
+    recent_notebooks: unknown
+    /** Cohort orientation: `{total_count, recent: [...]}` with the 5 most recently updated cohorts on the team. */
+    recent_cohorts: unknown
+    /** Action orientation: `{total_count, recent: [...]}` with the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
+    recent_actions: unknown
     /**
      * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
      * @nullable
@@ -446,15 +381,6 @@ export interface SignalScoutRunSummaryApi {
      * @nullable
      */
     task_url?: string | null
-}
-
-export interface PaginatedSignalScoutRunSummaryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SignalScoutRunSummaryApi[]
 }
 
 export type SignalScoutRunDetailApiFindingsItem = { [key: string]: unknown }
@@ -598,6 +524,82 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+}
+
+/**
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
+ */
+export interface ScratchpadEntryApi {
+    /** Agent-chosen semantic key, unique per team. */
+    key: string
+    /** Prose content for prompt injection. */
+    content: string
+    /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
+    authority: string
+    /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
+    tags: string[]
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 last-write timestamp.
+     * @nullable
+     */
+    updated_at: string | null
+    /**
+     * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Run that wrote this entry, or null if human-authored.
+     * @nullable
+     */
+    created_by_run_id: string | null
+}
+
+/**
+ * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
+ */
+export interface RememberRequestApi {
+    /**
+     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * @maxLength 300
+     */
+    key: string
+    /** Prose to write. Read verbatim into future prompts. */
+    content: string
+    /** Tags for later search. Empty/whitespace tags are dropped. */
+    tags?: string[]
+    /**
+     * Days until expiry (default 7, hard cap 90).
+     * @minimum 1
+     * @maximum 90
+     */
+    ttl_days?: number
+    /**
+     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+     * @nullable
+     */
+    run_id?: string | null
+}
+
+/**
+ * Request body for `forget`. Only `agent_inference` keys can be deleted.
+ */
+export interface ForgetRequestApi {
+    /**
+     * Memory key to delete.
+     * @maxLength 300
+     */
+    key: string
+}
+
+export interface ForgetResponseApi {
+    /** Whether a row was actually removed (false if the key didn't exist). */
+    deleted: boolean
 }
 
 /**
@@ -763,31 +765,6 @@ export type SignalsReportsListParams = {
     suggested_reviewers?: string
 }
 
-export type SignalsScoutMemoryListParams = {
-    /**
-     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
-     */
-    include_expired?: boolean
-    /**
-     * Max rows to return (default 20, hard cap 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
-     */
-    tags?: string[]
-    /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
-     */
-    text?: string
-}
-
 export type SignalsScoutProjectProfileGetParams = {
     /**
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Concurrent forced rebuilds are still serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
@@ -803,15 +780,32 @@ export type SignalsScoutRunsListParams = {
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
      * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
      */
     since?: string
     /**
      * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
+     */
+    text?: string
+}
+
+export type SignalsScoutScratchpadListParams = {
+    /**
+     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
+     */
+    include_expired?: boolean
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
+     */
+    tags?: string[]
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
      */
     text?: string
 }

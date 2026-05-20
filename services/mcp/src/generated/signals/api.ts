@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -56,26 +56,6 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
- * @summary Delete an agent memory by key
- */
-export const SignalsScoutScratchpadDeleteParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const signalsScoutScratchpadDeleteBodyKeyMax = 300
-
-export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
-    .object({
-        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
-    })
-    .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
-
-/**
  * Return the team's deterministic project profile. By default the response reflects either the newest non-expired cached row or a freshly-built one (lazy compute on cache miss). Pass `force_refresh=true` to skip the cache and rebuild from authoritative sources — useful right after seeding events or importing data so the next agent run sees the change without waiting for natural TTL expiry. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
  * @summary Get the current project profile
  */
@@ -119,7 +99,6 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
         .max(signalsScoutRunsListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
     since: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -221,6 +200,100 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .describe('Idempotency key. Re-using the same id within a run short-circuits without re-emitting.'),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * @summary Search durable memories
+ */
+export const SignalsScoutScratchpadListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutScratchpadListQueryLimitMax = 100
+
+export const SignalsScoutScratchpadListQueryParams = /* @__PURE__ */ zod.object({
+    include_expired: zod
+        .boolean()
+        .optional()
+        .describe('Include expired `agent_inference` entries (default false). Use for audit/debug only.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsScoutScratchpadListQueryLimitMax)
+        .optional()
+        .describe('Max rows to return (default 20, hard cap 100).'),
+    tags: zod
+        .array(zod.string())
+        .optional()
+        .describe('Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.'),
+    text: zod
+        .string()
+        .optional()
+        .describe('ILIKE substring match against `content`. Omit to return the most recent entries.'),
+})
+
+/**
+ * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * @summary Write or refresh an agent memory
+ */
+export const SignalsScoutScratchpadCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutScratchpadCreateBodyKeyMax = 300
+
+export const signalsScoutScratchpadCreateBodyTtlDaysMax = 90
+
+export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
+    .object({
+        key: zod
+            .string()
+            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
+        content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty/whitespace tags are dropped.'),
+        ttl_days: zod
+            .number()
+            .min(1)
+            .max(signalsScoutScratchpadCreateBodyTtlDaysMax)
+            .optional()
+            .describe('Days until expiry (default 7, hard cap 90).'),
+        run_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+            ),
+    })
+    .describe('Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.')
+
+/**
+ * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * @summary Delete an agent memory by key
+ */
+export const SignalsScoutScratchpadDeleteParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutScratchpadDeleteBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
 
 export const SignalsSourceConfigsListParams = /* @__PURE__ */ zod.object({
     project_id: zod

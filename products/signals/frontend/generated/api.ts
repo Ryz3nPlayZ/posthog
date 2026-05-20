@@ -14,9 +14,7 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
-    PaginatedScratchpadEntryListApi,
     PaginatedSignalReportListApi,
-    PaginatedSignalScoutRunSummaryListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -26,13 +24,14 @@ import type {
     ScratchpadEntryApi,
     SignalReportApi,
     SignalScoutRunDetailApi,
+    SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsReportsListParams,
-    SignalsScoutMemoryListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
+    SignalsScoutScratchpadListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -162,79 +161,6 @@ export const signalsReportsRetrieve = async (
     })
 }
 
-export const getSignalsScoutMemoryListUrl = (projectId: string, params?: SignalsScoutMemoryListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/memory/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/memory/`
-}
-
-/**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
- * @summary Search durable memories
- */
-export const signalsScoutMemoryList = async (
-    projectId: string,
-    params?: SignalsScoutMemoryListParams,
-    options?: RequestInit
-): Promise<PaginatedScratchpadEntryListApi> => {
-    return apiMutator<PaginatedScratchpadEntryListApi>(getSignalsScoutMemoryListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSignalsScoutMemoryCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/memory/`
-}
-
-/**
- * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
- * @summary Write or refresh an agent memory
- */
-export const signalsScoutMemoryCreate = async (
-    projectId: string,
-    rememberRequestApi: RememberRequestApi,
-    options?: RequestInit
-): Promise<ScratchpadEntryApi> => {
-    return apiMutator<ScratchpadEntryApi>(getSignalsScoutMemoryCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(rememberRequestApi),
-    })
-}
-
-export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/memory/delete/`
-}
-
-/**
- * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
- * @summary Delete an agent memory by key
- */
-export const signalsScoutScratchpadDelete = async (
-    projectId: string,
-    forgetRequestApi: ForgetRequestApi,
-    options?: RequestInit
-): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(forgetRequestApi),
-    })
-}
-
 export const getSignalsScoutProjectProfileGetUrl = (
     projectId: string,
     params?: SignalsScoutProjectProfileGetParams
@@ -293,8 +219,8 @@ export const signalsScoutRunsList = async (
     projectId: string,
     params?: SignalsScoutRunsListParams,
     options?: RequestInit
-): Promise<PaginatedSignalScoutRunSummaryListApi> => {
-    return apiMutator<PaginatedSignalScoutRunSummaryListApi>(getSignalsScoutRunsListUrl(projectId, params), {
+): Promise<SignalScoutRunSummaryApi[]> => {
+    return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -338,6 +264,79 @@ export const signalsScoutRunsFindingsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: SignalsScoutScratchpadListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/scratchpad/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * @summary Search durable memories
+ */
+export const signalsScoutScratchpadList = async (
+    projectId: string,
+    params?: SignalsScoutScratchpadListParams,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi[]> => {
+    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutScratchpadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * @summary Write or refresh an agent memory
+ */
+export const signalsScoutScratchpadCreate = async (
+    projectId: string,
+    rememberRequestApi: RememberRequestApi,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi> => {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/delete/`
+}
+
+/**
+ * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * @summary Delete an agent memory by key
+ */
+export const signalsScoutScratchpadDelete = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 
