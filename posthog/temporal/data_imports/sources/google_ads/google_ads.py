@@ -455,7 +455,7 @@ def _search_as_arrow_tables(
     query: str,
     table: GoogleAdsTable,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
-) -> collections.abc.Generator[pa.Table, None, None]:
+) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
     Resumption contract:

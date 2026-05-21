@@ -59,7 +59,7 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
         # module-level env reads are non-deterministic across workflow replay.
         batches = [
             EvaluateCohortBatchInput(manifests=list(chunk))
-            for chunk in batched(discovery.manifests, discovery.batch_size)
+            for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
         # `return_exceptions=True` isolates per-batch retry-exhaustion: one

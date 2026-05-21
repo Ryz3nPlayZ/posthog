@@ -7,7 +7,7 @@ from llm_gateway.cli.reset_posthog_code_usage import reset_usage
 
 
 @pytest.fixture
-async def redis() -> AsyncGenerator[fakeredis.FakeRedis, None]:
+async def redis() -> AsyncGenerator[fakeredis.FakeRedis]:
     yield fakeredis.FakeRedis()
 
 

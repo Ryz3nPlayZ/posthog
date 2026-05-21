@@ -65,7 +65,7 @@ FLAG_PROCESSING_ERROR_COUNTER = Counter(
 
 def _get_properties_from_filters(
     filters: Union[dict, FlagFilters], property_type: str | None = None
-) -> Generator[FlagProperty, None, None]:
+) -> Generator[FlagProperty]:
     """
     Extract properties from filters by iterating through groups.
 
@@ -95,7 +95,7 @@ def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[i
     return cohort_ids
 
 
-def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty, None, None]:
+def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty]:
     """Extract flag properties from filters."""
     return _get_properties_from_filters(filters, PropertyFilterType.FLAG)
 

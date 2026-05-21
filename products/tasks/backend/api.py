@@ -2445,7 +2445,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
+        async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key)
             delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
             wait_started_at = asyncio.get_running_loop().time()

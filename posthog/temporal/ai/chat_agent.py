@@ -176,7 +176,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
                 return True
         return False
 
-    async def stream_runner(runner: ChatAgentRunner) -> AsyncGenerator[AssistantOutput, None]:
+    async def stream_runner(runner: ChatAgentRunner) -> AsyncGenerator[AssistantOutput]:
         nonlocal should_stop_queue
         async for event_type, message in runner.astream():
             if event_type == AssistantEventType.APPROVAL:
@@ -184,7 +184,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
                 should_stop_queue = True
             yield cast(AssistantOutput, (event_type, message))
 
-    async def queue_stream() -> AsyncGenerator[AssistantOutput, None]:
+    async def queue_stream() -> AsyncGenerator[AssistantOutput]:
         assistant = ChatAgentRunner(
             team,
             conversation,
@@ -292,7 +292,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
         )
 
     redis_stream = ConversationRedisStream(inputs.stream_key)
-    stream = cast(AsyncGenerator[AssistantOutput, None], queue_stream())
+    stream = cast(AsyncGenerator[AssistantOutput], queue_stream())
     await redis_stream.write_to_stream(stream, activity.heartbeat, emit_completion=False)
 
     if should_stop_queue:

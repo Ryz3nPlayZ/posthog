@@ -162,7 +162,7 @@ def test_build_error_origin_prefers_deepest_repo_frame() -> None:
         name="check_alert",
     )
     external_frame = traceback.FrameSummary(
-        filename="/usr/local/lib/python3.12/site-packages/tenacity/__init__.py",
+        filename="/usr/local/lib/python3.13/site-packages/tenacity/__init__.py",
         lineno=456,
         name="wrapped_fn",
     )
