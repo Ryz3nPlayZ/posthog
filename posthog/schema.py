@@ -50,6 +50,7 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
+    USER_INTERVIEW = "user_interview"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -63,6 +64,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -687,6 +689,7 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -2163,6 +2166,7 @@ class ExternalDataSourceType(StrEnum):
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
     RESEND = "Resend"
+    PG_ANALYZE = "PgAnalyze"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3711,6 +3715,40 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
+class PgAnalyzeIssueReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: str | None = None
+    name: str | None = None
+    queryText: str | None = None
+    url: str | None = None
+
+
+class PgAnalyzeIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    database_id: str | None = None
+    references: list[PgAnalyzeIssueReference]
+    server_human_id: str | None = None
+    server_name: str | None = None
+    severity: str | None = None
+    synced_at: str
+
+
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
@@ -4527,6 +4565,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
+    PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
 
 
@@ -4573,6 +4612,44 @@ class TimeRange(BaseModel):
     )
     date_from: str
     date_to: str
+
+
+class SignalsScoutSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence: float = Field(
+        ...,
+        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+    )
+    dedupe_keys: list[str] | None = Field(
+        default=None,
+        description="Free-form short keys the harness can use for cross-run dedupe.",
+    )
+    evidence: list[SignalsScoutEvidenceEntry]
+    finding_id: str
+    hypothesis: str | None = None
+    mcp_trace_id: str | None = Field(
+        default=None,
+        description=("Trace id from the LLM analytics span for the scout run, when available."),
+    )
+    scout_run_id: str
+    severity: Severity | None = None
+    skill_name: str
+    skill_version: float
+    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
+
+
+class SignalsScoutSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalsScoutSignalExtra
+    source_id: str
+    source_product: Literal["signals_scout"] = "signals_scout"
+    source_type: Literal["cross_source_issue"] = "cross_source_issue"
+    weight: float
 
 
 class SimilarIssue(BaseModel):
@@ -8447,42 +8524,34 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
-class SignalsScoutSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+class SignalInput(
+    RootModel[
+        SessionProblemSignalInput
+        | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
+        | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
+    ]
+):
+    root: (
+        SessionProblemSignalInput
+        | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
+        | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
     )
-    confidence: float = Field(
-        ...,
-        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
-    )
-    dedupe_keys: list[str] | None = Field(
-        default=None,
-        description="Free-form short keys the harness can use for cross-run dedupe.",
-    )
-    evidence: list[SignalsScoutEvidenceEntry]
-    finding_id: str
-    hypothesis: str | None = None
-    mcp_trace_id: str | None = Field(
-        default=None,
-        description=("Trace id from the LLM analytics span for the scout run, when available."),
-    )
-    scout_run_id: str
-    severity: Severity | None = None
-    skill_name: str
-    skill_version: int
-    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
-
-
-class SignalsScoutSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SignalsScoutSignalExtra
-    source_id: str
-    source_product: Literal["signals_scout"] = "signals_scout"
-    source_type: Literal["cross_source_issue"] = "cross_source_issue"
-    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -12885,6 +12954,10 @@ class ChartSettings(BaseModel):
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
+    resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
+        default=None,
+        description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
+    )
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
@@ -18295,34 +18368,6 @@ class SessionsTimelineQuery(BaseModel):
     response: SessionsTimelineQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class SignalInput(
-    RootModel[
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | SignalsScoutSignalInput
-    ]
-):
-    root: (
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | SignalsScoutSignalInput
-    )
 
 
 class SurveyCreationSchema(BaseModel):
