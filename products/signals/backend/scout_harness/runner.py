@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from django.db import IntegrityError
 from django.utils import timezone
 
 from posthog.models.team.team import Team

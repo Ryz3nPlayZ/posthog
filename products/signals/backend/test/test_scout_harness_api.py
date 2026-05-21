@@ -311,19 +311,6 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
 
-<<<<<<< HEAD
-=======
-    def test_forget_refuses_human_confirmed(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="locked",
-            content="curated",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-        )
-        response = self.client.post(self._delete_url(), data={"key": "locked"}, format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
->>>>>>> d0193ab98c4 (refactor(signals): apply scout/scratchpad rename to PR 6 surface)
     def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
         run = _make_run(self.team)
         response = self.client.post(
