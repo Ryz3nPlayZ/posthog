@@ -212,7 +212,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. Results are capped at 100; pass `since` to scope to a recent window.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
@@ -231,7 +231,7 @@ export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * Return the full `SignalScoutRun` row. Status, timing, and error flow from the linked `tasks.TaskRun`. Strictly team-scoped — a UUID belonging to another team returns 404.
  * @summary Get a run by ID
  */
 export const signalsScoutRunsRetrieve = async (
@@ -250,7 +250,7 @@ export const getSignalsScoutRunsFindingsCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
+ * Fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.
  * @summary Emit a finding for a run
  */
 export const signalsScoutRunsFindingsCreate = async (
@@ -284,7 +284,7 @@ export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: Sig
 }
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
  * @summary Search durable memories
  */
 export const signalsScoutScratchpadList = async (
@@ -303,7 +303,7 @@ export const getSignalsScoutScratchpadCreateUrl = (projectId: string) => {
 }
 
 /**
- * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
  * @summary Write or refresh an agent memory
  */
 export const signalsScoutScratchpadCreate = async (
@@ -324,7 +324,7 @@ export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
 }
 
 /**
- * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * Delete an entry by key. Returns `deleted=false` if no row matched.
  * @summary Delete an agent memory by key
  */
 export const signalsScoutScratchpadDelete = async (

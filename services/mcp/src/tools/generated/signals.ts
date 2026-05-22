@@ -231,7 +231,6 @@ const signalsScoutRunsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 since: params.since,
-                text: params.text,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
@@ -269,12 +268,6 @@ const signalsScoutScratchpadCreate = (): ToolBase<
         }
         if (params.content !== undefined) {
             body['content'] = params.content
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.ttl_days !== undefined) {
-            body['ttl_days'] = params.ttl_days
         }
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
@@ -325,9 +318,7 @@ const signalsScoutScratchpadList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
-                include_expired: params.include_expired,
                 limit: params.limit,
-                tags: params.tags,
                 text: params.text,
             },
         })

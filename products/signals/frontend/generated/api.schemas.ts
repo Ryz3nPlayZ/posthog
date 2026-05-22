@@ -345,99 +345,75 @@ export interface ProjectProfileApi {
 
 /**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+
+Status and timestamps flow from the linked `tasks.TaskRun`.
  */
 export interface SignalScoutRunSummaryApi {
-    /** UUID of the run row. */
+    /** UUID of the bridge row. */
     run_id: string
     /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Run status: scheduled | running | completed | failed | abandoned. */
+    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
-    /** ISO-8601 timestamp the run row was inserted. */
+    /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
-     * ISO-8601 timestamp the run finalized; null while still running.
+     * ISO-8601 timestamp the TaskRun completed; null while still running.
      * @nullable
      */
     completed_at: string | null
-    /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
-    summary: string
-    /** Number of finding entries persisted on the run row. */
-    findings_count: number
     /**
-     * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+     * UUID of the Tasks `Task` the scout span ran inside.
      * @nullable
      */
     task_id?: string | null
     /**
-     * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+     * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
      * @nullable
      */
     task_run_id?: string | null
     /**
-     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
      * @nullable
      */
     task_url?: string | null
 }
 
-export type SignalScoutRunDetailApiFindingsItem = { [key: string]: unknown }
-
-export type SignalScoutRunDetailApiHypothesesConsideredItem = { [key: string]: unknown }
-
 /**
- * Measured quantities about how the run went, e.g. {runtime_s, findings}.
- */
-export type SignalScoutRunDetailApiRunMetrics = { [key: string]: number }
-
-/**
- * Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).
- */
-export type SignalScoutRunDetailApiMetadata = { [key: string]: unknown }
-
-/**
- * Full `SignalScoutRun` projection used by `get-run`. Includes structured payloads.
+ * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
+post-refactor — the bridge row no longer holds structured payloads. Future
+extensions (linked Signal rows, LLMA token-cost join) land here.
  */
 export interface SignalScoutRunDetailApi {
-    /** UUID of the run row. */
+    /** UUID of the bridge row. */
     run_id: string
-    /** Canonical skill name the run executed. */
+    /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Run status. */
+    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
-    /** ISO-8601 timestamp the run row was inserted. */
+    /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
-     * ISO-8601 timestamp the run finalized.
+     * ISO-8601 timestamp the TaskRun completed; null while still running.
      * @nullable
      */
     completed_at: string | null
-    /** Prose summary of the run. */
-    summary: string
-    /** Findings persisted to the run row, including pre-emit attribution. */
-    findings: SignalScoutRunDetailApiFindingsItem[]
-    /** Hypotheses the run considered, including ones it explicitly skipped. */
-    hypotheses_considered: SignalScoutRunDetailApiHypothesesConsideredItem[]
-    /** Measured quantities about how the run went, e.g. {runtime_s, findings}. */
-    run_metrics: SignalScoutRunDetailApiRunMetrics
-    /** Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link). */
-    metadata: SignalScoutRunDetailApiMetadata
     /**
-     * UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.
+     * UUID of the Tasks `Task` the scout span ran inside.
      * @nullable
      */
     task_id?: string | null
     /**
-     * UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.
+     * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
      * @nullable
      */
     task_run_id?: string | null
     /**
-     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
      * @nullable
      */
     task_url?: string | null
@@ -520,7 +496,7 @@ export interface EmitFindingResponseApi {
     /** Whether `emit_signal` was actually fired. */
     emitted: boolean
     /**
-     * `shadow_mode` | `already_emitted` | null when emitted normally.
+     * `ai_processing_not_approved` | `source_disabled` | null when emitted normally.
      * @nullable
      */
     skipped_reason: string | null
@@ -534,10 +510,6 @@ export interface ScratchpadEntryApi {
     key: string
     /** Prose content for prompt injection. */
     content: string
-    /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
-    authority: string
-    /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
-    tags: string[]
     /**
      * ISO-8601 creation timestamp.
      * @nullable
@@ -549,11 +521,6 @@ export interface ScratchpadEntryApi {
      */
     updated_at: string | null
     /**
-     * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-     * @nullable
-     */
-    expires_at: string | null
-    /**
      * Run that wrote this entry, or null if human-authored.
      * @nullable
      */
@@ -561,7 +528,7 @@ export interface ScratchpadEntryApi {
 }
 
 /**
- * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
+ * Request body for `remember`.
  */
 export interface RememberRequestApi {
     /**
@@ -571,14 +538,6 @@ export interface RememberRequestApi {
     key: string
     /** Prose to write. Read verbatim into future prompts. */
     content: string
-    /** Tags for later search. Empty/whitespace tags are dropped. */
-    tags?: string[]
-    /**
-     * Days until expiry (default 7, hard cap 90).
-     * @minimum 1
-     * @maximum 90
-     */
-    ttl_days?: number
     /**
      * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
      * @nullable
@@ -587,7 +546,7 @@ export interface RememberRequestApi {
 }
 
 /**
- * Request body for `forget`. Only `agent_inference` keys can be deleted.
+ * Request body for `forget`.
  */
 export interface ForgetRequestApi {
     /**
@@ -780,30 +739,18 @@ export type SignalsScoutRunsListParams = {
      */
     limit?: number
     /**
-     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
+     * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
      */
     since?: string
-    /**
-     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
-     */
-    text?: string
 }
 
 export type SignalsScoutScratchpadListParams = {
-    /**
-     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
-     */
-    include_expired?: boolean
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number
-    /**
-     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
-     */
-    tags?: string[]
     /**
      * ILIKE substring match against `content`. Omit to return the most recent entries.
      */
