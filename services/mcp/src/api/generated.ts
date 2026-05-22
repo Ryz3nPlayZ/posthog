@@ -4512,24 +4512,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `P0` - P0
-    * `P1` - P1
-    * `P2` - P2
-    * `P3` - P3
-    * `P4` - P4
-     */
-    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
-
-
-    export const AutonomyPriorityEnum = {
-      P0: 'P0',
-      P1: 'P1',
-      P2: 'P2',
-      P3: 'P3',
-      P4: 'P4',
-    } as const;
-
-    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -13454,6 +13436,24 @@ export namespace Schemas {
       entity_id?: string | null;
     }
 
+    /**
+     * * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4
+     */
+    export type SignalsScoutSeverityEnum = typeof SignalsScoutSeverityEnum[keyof typeof SignalsScoutSeverityEnum];
+
+
+    export const SignalsScoutSeverityEnum = {
+      P0: 'P0',
+      P1: 'P1',
+      P2: 'P2',
+      P3: 'P3',
+      P4: 'P4',
+    } as const;
+
     export interface TimeRange {
       /** ISO-8601 inclusive lower bound for the finding's window. */
       date_from: string;
@@ -13489,11 +13489,14 @@ export namespace Schemas {
          * @nullable
          */
       hypothesis?: string | null;
-      /**
-         * Optional severity tag (`P0`-`P4`) — informational only.
-         * @nullable
-         */
-      severity?: string | null;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity?: SignalsScoutSeverityEnum | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
       /** Optional time window the finding refers to. */
@@ -35559,26 +35562,7 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutonomyPriorityEnum | BlankEnum | null;
-      /**
-         * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
-         * @nullable
-         */
-      readonly slack_notification_integration_id: number | null;
-      /**
-         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
-         * @maxLength 255
-         * @nullable
-         */
-      slack_notification_channel?: string | null;
-      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
-
-      * `P0` - P0
-      * `P1` - P1
-      * `P2` - P2
-      * `P3` - P3
-      * `P4` - P4 */
-      slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      autostart_priority?: SignalsScoutSeverityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
