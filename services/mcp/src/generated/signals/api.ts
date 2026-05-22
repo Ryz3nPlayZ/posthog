@@ -56,7 +56,7 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. Results are capped at 100; pass `since` to scope to a recent window.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`; pass `since` to scope to a recent window. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -80,6 +80,11 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('ISO-8601 lower bound on `created_at`. Use to scope to a recent window.'),
+    text: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter."),
 })
 
 /**

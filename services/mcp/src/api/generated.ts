@@ -35470,8 +35470,8 @@ export namespace Schemas {
 
     /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-    post-refactor — the bridge row no longer holds structured payloads. Future
-    extensions (linked Signal rows, LLMA token-cost join) land here.
+    today; kept distinct so future detail-only extensions (linked Signal rows,
+    LLMA token-cost join) can land here without bloating the list response.
      */
     export interface SignalScoutRunDetail {
       /** UUID of the bridge row. */
@@ -35504,6 +35504,8 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     /**
@@ -35542,6 +35544,8 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     export interface _User {
@@ -46167,6 +46171,11 @@ export namespace Schemas {
      * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
      */
     since?: string;
+    /**
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
+     */
+    text?: string;
     };
 
     export type SignalsScoutScratchpadListParams = {

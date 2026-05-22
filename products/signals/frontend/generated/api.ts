@@ -176,7 +176,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. Results are capped at 100; pass `since` to scope to a recent window.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`; pass `since` to scope to a recent window. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (

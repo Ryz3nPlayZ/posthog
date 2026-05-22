@@ -160,6 +160,7 @@ const signalsScoutRunsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 since: params.since,
+                text: params.text,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
