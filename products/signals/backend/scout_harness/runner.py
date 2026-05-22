@@ -318,63 +318,25 @@ def _has_running_run(*, team_id: int, config_id: str, skill_name: str) -> bool:
     )
 
 
-# Stale rows past this multiple of `WORKFLOW_HARD_CEILING_S` are reconciled to FAILED.
-# 2x is conservative: the workflow's `start_to_close_timeout` is exactly
-# `WORKFLOW_HARD_CEILING_S`, so an activity that completed normally — success, failure,
-# or Temporal-side timeout — would never be running longer than that. 2x is the slack
-# we leave for the row's own update path racing the timeout signal; anything older is
-# orphaned beyond reasonable doubt.
-_STALE_RUN_MULTIPLIER = 2
-
-
 def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
-    """Reconcile RUNNING rows older than `_STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S`
-    to FAILED.
+    """No-op pending the task_run-based partial unique index follow-up.
 
-    Catches rows orphaned by worker shutdown, sandbox crash, or async cancellation that
-    bypassed the activity's cleanup path. The threshold is anchored to the workflow's
-    actual hard timeout (`DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`), not the per-run
-    `metadata.limits.max_runtime_s` — that override only governs the harness's in-activity
-    poll loop, while the Temporal `start_to_close_timeout` is fixed. Anchoring to the
-    workflow ceiling keeps the self-heal time uniform across teams; a team setting
-    `max_runtime_s = 7200s` doesn't get hours of false-blocking from an orphan that
-    Temporal would have killed at ~31 minutes anyway.
+    The original self-heal recovered RUNNING rows orphaned by a worker / sandbox
+    crash, because a DB-level partial unique index on
+    `(team_id, skill_name) WHERE status='running'` would otherwise block all
+    future dispatches for the same (team, skill). That index was dropped during
+    the 2026-05-21 restack — it referenced `SignalScoutRun.status`, which no
+    longer exists on the slim bridge row (status lives on `task_run.status`).
 
-    Keyed on `(team_id, skill_name)` to mirror the partial unique index — keying on
-    `scout_config_id` would leave orphaned rows with a stale or null FK un-healable while
-    the same constraint kept blocking new inserts for the same (team, skill).
-
-    Idempotent: safe to call from any number of concurrent coordinator activities.
+    `_has_running_run` queries `task_run__status=IN_PROGRESS` so single-flighting
+    still works at the app layer; stale bridge rows no longer block dispatch,
+    they just take up space. The Tasks subsystem owns `task_run.status` and has
+    its own timeout / cleanup path, so cross-product writes from here would be
+    inappropriate. Restore real recovery logic once a `task_run.status`-based
+    DB constraint lands as a follow-up.
     """
-    candidates = SignalScoutRun.objects.filter(
-        team_id=team_id,
-        skill_name=skill_name,
-        status=SignalScoutRun.Status.RUNNING,
-    ).only("id", "started_at", "metadata")
-    now = timezone.now()
-    threshold_s = _STALE_RUN_MULTIPLIER * WORKFLOW_HARD_CEILING_S
-    for run in candidates:
-        age_s = (now - run.started_at).total_seconds()
-        if age_s <= threshold_s:
-            continue
-        SignalScoutRun.objects.filter(id=run.id, status=SignalScoutRun.Status.RUNNING).update(
-            status=SignalScoutRun.Status.FAILED,
-            completed_at=now,
-            summary=(
-                f"Run row auto-healed: status=RUNNING for {age_s:.0f}s "
-                f"(threshold {threshold_s}s = {_STALE_RUN_MULTIPLIER}x WORKFLOW_HARD_CEILING_S). "
-                f"Worker / sandbox likely died without the cleanup path running."
-            ),
-        )
-        logger.warning(
-            "signals_scout: self-healed stale running run",
-            extra={
-                "team_id": team_id,
-                "run_id": str(run.id),
-                "age_s": age_s,
-                "threshold_s": threshold_s,
-            },
-        )
+    _ = team_id, skill_name
+    return
 
 
 def _create_run_row(
