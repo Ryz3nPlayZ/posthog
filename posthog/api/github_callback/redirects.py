@@ -1,36 +1,76 @@
-"""Post-callback redirect helpers for the personal GitHub linking flow."""
-
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect
 
-from posthog.api.github_callback.types import MOBILE_GITHUB_CALLBACK_URL
+from posthog.api.github_callback.types import (
+    ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
+    MOBILE_GITHUB_CALLBACK_URL,
+    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+    FinishResult,
+    github_integrations_settings_path,
+)
+from posthog.utils import is_relative_url
 
-PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
-ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
 
-
-class AppDeepLinkRedirect(HttpResponseRedirect):
-    """Redirect that also permits the mobile app's custom ``posthog://`` scheme.
-
-    Django's default ``HttpResponseRedirect`` rejects non-web schemes as unsafe
-    (``DisallowedRedirect``). The target here is a hardcoded first-party deep
-    link, not user input, so allowing the extra scheme is safe.
-    """
+class _AppDeepLinkRedirect(HttpResponseRedirect):
+    """Redirect that also permits the mobile app's custom ``posthog://`` scheme."""
 
     allowed_schemes = [*HttpResponseRedirect.allowed_schemes, "posthog"]
 
 
-def final_github_redirect(connect_from: str | None, *, error: str | None = None) -> HttpResponseRedirect:
-    """Pick the post-OAuth destination based on which client started the flow.
+def append_query_params(url: str, params: dict[str, str]) -> str:
+    if not params:
+        return url
+    parsed = urlparse(url)
+    merged = dict(parse_qsl(parsed.query))
+    merged.update(params)
+    query = urlencode(merged)
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    return f"{parsed.path}{('?' + query) if query else ''}{fragment}"
 
-    - ``posthog_mobile`` → the app's ``posthog://`` deep link so the in-app
-      browser auto-closes.
-    - ``posthog_code`` → the web ``/account-connected`` page that the desktop app
-      intercepts via its own deep link.
-    - anything else (web UI) → the personal integrations settings page.
-    """
+
+def landing_url(next_url: str | None, team_id: int | None) -> str:
+    if next_url and is_relative_url(next_url):
+        return next_url
+    if team_id is not None:
+        return github_integrations_settings_path(team_id)
+    return "/settings/environment-integrations"
+
+
+def team_setup_redirect(
+    *,
+    next_url: str | None,
+    team_id: int | None,
+    error: str | None = None,
+    error_message: str | None = None,
+    installation_id: str | None = None,
+    integration_id: str | None = None,
+    pending: bool = False,
+) -> HttpResponseRedirect:
+    target = landing_url(next_url, team_id)
+    params: dict[str, str] = {}
+
+    if pending:
+        params["github_install_pending"] = "1"
+
+    if error:
+        if ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH in target:
+            params["error"] = error
+        else:
+            params["github_setup_error"] = error
+        if error_message:
+            params["error_message"] = error_message
+    else:
+        if installation_id:
+            params["installation_id"] = installation_id
+        if integration_id:
+            params["integration_id"] = integration_id
+
+    return redirect(append_query_params(target, params))
+
+
+def personal_finish_redirect(connect_from: str | None, *, error: str | None = None) -> HttpResponseRedirect:
     app_base_urls: dict[str, str] = {
         "posthog_mobile": MOBILE_GITHUB_CALLBACK_URL,
         "posthog_code": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
@@ -39,7 +79,48 @@ def final_github_redirect(connect_from: str | None, *, error: str | None = None)
         params = {"provider": "github"}
         if error:
             params["error"] = error
-        return AppDeepLinkRedirect(f"{app_base_urls[connect_from]}?{urlencode(params)}")
+        return _AppDeepLinkRedirect(f"{app_base_urls[connect_from]}?{urlencode(params)}")
     if error:
         return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={error}")
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
+
+
+def team_oauth_success_redirect(
+    *,
+    next_url: str | None,
+    installation_id: str,
+    integration_id: str,
+) -> HttpResponseRedirect:
+    target = next_url or PERSONAL_INTEGRATIONS_SETTINGS_PATH
+    return redirect(
+        append_query_params(
+            target,
+            {
+                "installation_id": installation_id,
+                "integration_id": integration_id,
+            },
+        )
+    )
+
+
+def redirect_from_finish_result(result: FinishResult) -> HttpResponseRedirect:
+    if result.redirect_kind == "oauth_url" and result.oauth_url:
+        return redirect(result.oauth_url)
+    if result.redirect_kind == "team_oauth_success":
+        assert result.installation_id and result.integration_id
+        return team_oauth_success_redirect(
+            next_url=result.next_url,
+            installation_id=result.installation_id,
+            integration_id=result.integration_id,
+        )
+    if result.redirect_kind == "personal_finish":
+        return personal_finish_redirect(result.connect_from, error=result.error)
+    return team_setup_redirect(
+        next_url=result.next_url,
+        team_id=result.team_id,
+        error=result.error,
+        error_message=result.error_message,
+        installation_id=result.installation_id,
+        integration_id=result.integration_id,
+        pending=result.pending,
+    )

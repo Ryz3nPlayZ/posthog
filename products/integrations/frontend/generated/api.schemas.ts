@@ -332,6 +332,11 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface GitHubPrepareCallbackRequestApi {
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    next?: string
+}
+
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).
@@ -377,6 +382,11 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     /** @nullable */
     previous?: string | null
     results: UserGitHubIntegrationListResponseApi[]
+}
+
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
 }
 
 export interface UserGitHubLinkStartRequestApi {

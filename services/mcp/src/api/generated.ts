@@ -17387,6 +17387,11 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubPrepareCallbackRequest {
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      next?: string;
+    }
+
     export interface GitHubRepo {
       id: number;
       name: string;
@@ -36026,21 +36031,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    /**
-     * Request body for the presence beacon and beacon-leave endpoints.
-
-    `device_id` is the UUID of the caller's `UserPushToken` row, which the
-    client received when it registered for push via `/api/users/@me/push_tokens/`.
-    The client is expected to use the same identifier on the beacon and leave
-    calls; if the user has unregistered the underlying push token, the value
-    won't resolve and the call returns 404 — at which point pushes were
-    already not going there anyway.
-     */
-    export interface TaskPresenceBeaconRequest {
-      /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
-      device_id: string;
-    }
-
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
@@ -37033,6 +37023,11 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    export interface UserGitHubPrepareCallbackRequest {
+      /** GitHub App installation id being managed on github.com. */
+      installation_id: string;
     }
 
     /**

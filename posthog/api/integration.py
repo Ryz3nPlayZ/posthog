@@ -21,10 +21,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
+    prepare_team_github_manage_callback,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -32,7 +34,6 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -74,6 +75,7 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
 
@@ -346,6 +348,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             return create_team_github_integration_from_oauth_code(
+                request=request,
                 user=request.user,
                 team_id=team_id,
                 installation_id=config.get("installation_id"),
@@ -563,6 +566,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
+class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+    )
+
+
 @extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -591,6 +602,7 @@ class IntegrationViewSet(
         "patch",
         "destroy",
         "refresh_github_repos",
+        "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
     ]
@@ -644,17 +656,15 @@ class IntegrationViewSet(
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
         elif kind == "github":
+            if next and not is_relative_url(next):
+                raise ValidationError("next must be a relative path starting with /")
             query_params = urlencode({"state": urlencode({"next": next, "token": token})})
             app_slug = get_instance_setting("GITHUB_APP_SLUG")
             installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
-            response = redirect(installation_url)
-            # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
-            response.set_cookie("ph_github_state", token, max_age=60 * 5)
-            # Store server-side so the backend can enforce that the same user who
-            # initiated the flow is the one completing it (not just cookie-validated).
-            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
-
-            return response
+            github_callback_state.store_github_authorize_state(
+                github_callback_state.authenticated_user_id(request), token, next, self.team_id
+            )
+            return redirect(installation_url)
 
         raise ValidationError("Kind not supported")
 
@@ -1041,6 +1051,24 @@ class IntegrationViewSet(
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Seed GitHub setup callback state without redirecting to GitHub.
+
+        Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+        Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+        """
+        serializer = GitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        next_url = str(serializer.validated_data.get("next") or "")
+        prepare_team_github_manage_callback(
+            user_id=github_callback_state.authenticated_user_id(request),
+            next_url=next_url,
+            team_id=self.team_id,
+        )
+        return Response(status=204)
 
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:

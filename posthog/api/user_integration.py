@@ -14,7 +14,8 @@ is not controlled here.
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from django.core.cache import cache
+from django.http import HttpRequest
+from django.views.decorators.http import require_http_methods
 
 import requests
 import structlog
@@ -25,12 +26,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.github_callback.personal_state import github_app_install_url, github_oauth_authorize_url
-from posthog.api.github_callback.types import (
-    APP_CONNECT_FROM_VALUES,
-    GITHUB_INSTALL_STATE_CACHE_PREFIX,
-    GITHUB_INSTALL_STATE_TTL_SECONDS,
+from posthog.api.github_callback import (
+    personal_state,
+    state as github_callback_state,
 )
+from posthog.api.github_callback.router import handle_oauth_redirect
+from posthog.api.github_callback.types import APP_CONNECT_FROM_VALUES, FlowKind, GitHubAuthorizeState
 from posthog.api.integration import (
     GitHubBranchesQuerySerializer,
     GitHubBranchesResponseSerializer,
@@ -89,6 +90,10 @@ class UserGitHubIntegrationListResponseSerializer(serializers.Serializer):
     )
 
 
+class UserGitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(help_text="GitHub App installation id being managed on github.com.")
+
+
 class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
@@ -125,6 +130,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "patch",
         "destroy",
         "github_start",
+        "github_prepare_callback",
         "github_destroy",
         "github_repos_refresh",
     ]
@@ -317,12 +323,17 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
                 return fast_path_response
             if _team_github_installation_id(team) is None:
-                cache.set(
-                    f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-                    {"user_id": user.id, "connect_from": connect_from, "flow": "oauth_discover"},
-                    timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+                github_callback_state.store_personal_authorize_state(
+                    GitHubAuthorizeState(
+                        token=token,
+                        flow=FlowKind.OAUTH_DISCOVER,
+                        user_id=user.id,
+                        connect_from=connect_from,
+                    ),
                 )
-                return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
+                return Response(
+                    {"install_url": personal_state.github_oauth_authorize_url(state), "connect_flow": "oauth_discover"}
+                )
 
         # If the user already has linked integrations, check whether there are
         # any GitHub App installations they haven't linked yet. If everything
@@ -333,21 +344,39 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "All GitHub App installations accessible to your account are already linked."
             )
 
-        install_state_payload: dict[str, Any] = {"user_id": user.id}
-        if connect_from:
-            install_state_payload["connect_from"] = connect_from
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            install_state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        github_callback_state.store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=user.id,
+                connect_from=str(connect_from) if connect_from else None,
+            ),
         )
         return Response(
             {
-                "install_url": github_app_install_url(state),
+                "install_url": personal_state.github_app_install_url(state),
                 "connect_flow": "app_install",
             }
         )
 
+    @extend_schema(
+        request=UserGitHubPrepareCallbackRequestSerializer, responses={204: OpenApiResponse(description="No content")}
+    )
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, **_kwargs) -> Response:
+        """Seed personal GitHub manage callback state before opening installation settings on GitHub."""
+        serializer = UserGitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        installation_id = str(serializer.validated_data["installation_id"])
+        user = self._get_user()
+        github_callback_state.store_personal_manage_callback_state(user.id, installation_id)
+        return Response(status=204)
+
+
+@require_http_methods(["GET"])
+def github_link_complete(request: HttpRequest):
+    """GitHub User OAuth redirect_uri entrypoint — delegates to the shared callback router."""
+    return handle_oauth_redirect(request)
 
 def _resolve_team_for_github_start(user: User, request: Request):
     """Resolve which team to use for team-level GitHub install discovery.
@@ -449,17 +478,18 @@ def _attempt_app_oauth_fast_path(
         return None
     if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
         return None
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        {
-            "user_id": user.id,
-            "installation_id": team_installation_id,
-            "flow": "oauth_authorize",
-            "connect_from": connect_from,
-        },
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+    github_callback_state.store_personal_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.PERSONAL_OAUTH,
+            user_id=user.id,
+            installation_id=team_installation_id,
+            connect_from=connect_from,
+        ),
     )
-    return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
+    return Response(
+        {"install_url": personal_state.github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"}
+    )
 
 
 def _serialize_github_integration(

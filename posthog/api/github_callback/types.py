@@ -1,13 +1,14 @@
-"""Constants and small helpers shared across the GitHub callback modules.
-
-These were previously inlined in ``posthog.api.integration`` and
-``posthog.api.user_integration``. Grouping them avoids duplication and keeps
-the callback modules small.
-"""
+"""Constants and small helpers shared across the GitHub callback modules."""
 
 import re
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Literal
+from urllib.parse import parse_qsl, urlparse
 
 from django.conf import settings
+
+from rest_framework.exceptions import ValidationError
 
 # Server-side state cache used by the personal GitHub linking flow (the install
 # callback and the OAuth-only fast paths). Keys are written when a flow starts
@@ -15,24 +16,99 @@ from django.conf import settings
 GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
 GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
 
-# Native deep link the mobile app (apps/mobile) registers as the OAuth return
-# URL. The in-app browser (ASWebAuthenticationSession / Custom Tabs) closes and
-# returns control to the app when the callback 302s here.
-MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
+GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"\d{1,20}")
 
-# ``connect_from`` values for first-party clients that use the lightweight app
-# linking flow (OAuth-only when the team already has the GitHub App installed,
-# otherwise discover/install) and return to a client-specific destination.
+GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS = 60 * 5
+GITHUB_UNIFIED_AUTHORIZE_CACHE_PREFIX = "github_authorize:"
+GITHUB_UNIFIED_AUTHORIZE_PENDING_PREFIX = "github_authorize_pending:"
+
+ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
+PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
+MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
 APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile")
 
-# GitHub App installation IDs are always positive integers. Reject anything else
-# before it touches URL construction.
-_GITHUB_INSTALLATION_ID_RE = re.compile(r"\d{1,20}")
+
+class FlowKind(StrEnum):
+    TEAM_INSTALL = "team_install"
+    TEAM_UPDATE = "team_update"
+    TEAM_OAUTH = "team_oauth"
+    PERSONAL_INSTALL = "personal_install"
+    PERSONAL_OAUTH = "personal_oauth"
+    PERSONAL_UPDATE = "personal_update"
+    OAUTH_DISCOVER = "oauth_discover"
+
+
+@dataclass(frozen=True)
+class GitHubAuthorizeState:
+    token: str
+    flow: FlowKind
+    user_id: int
+    team_id: int | None = None
+    installation_id: str | None = None
+    next_url: str | None = None
+    connect_from: str | None = None
+
+
+@dataclass
+class CallbackContext:
+    entry: Literal["setup_url", "oauth_redirect"]
+    resume_path: str
+    installation_id: str | None
+    setup_action: str | None
+    code: str | None
+    state_raw: str | None
+    github_error: str | None
+    github_error_description: str | None
+    flow: FlowKind | None = None
+    authorize_state: GitHubAuthorizeState | None = None
+
+
+@dataclass(frozen=True)
+class FinishResult:
+    redirect_kind: Literal["team_setup", "personal_finish", "oauth_url", "team_oauth_success"]
+    next_url: str | None = None
+    team_id: int | None = None
+    connect_from: str | None = None
+    installation_id: str | None = None
+    integration_id: str | None = None
+    oauth_url: str | None = None
+    error: str | None = None
+    error_message: str | None = None
+    pending: bool = False
+
+
+def connect_from_for_next(next_url: str) -> str | None:
+    connect_from = dict(parse_qsl(urlparse(next_url).query)).get("connect_from")
+    return connect_from if connect_from == "posthog_code" else None
 
 
 def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
-def is_valid_github_installation_id(value: object) -> bool:
-    return value is not None and bool(_GITHUB_INSTALLATION_ID_RE.fullmatch(str(value)))
+def github_integrations_settings_path(team_id: int) -> str:
+    return f"/project/{team_id}/settings/project-integrations"
+
+
+def github_oauth_callback_error_code(github_error: str) -> str:
+    return "access_denied" if github_error == "access_denied" else "github_oauth_error"
+
+
+def is_valid_github_installation_id(installation_id: object | None) -> bool:
+    if installation_id is None:
+        return False
+    return bool(GITHUB_INSTALLATION_ID_PATTERN.fullmatch(str(installation_id)))
+
+
+def validation_error_code(exc: ValidationError) -> str | None:
+    codes = exc.get_codes()
+    if isinstance(codes, list) and codes:
+        return str(codes[0])
+    if isinstance(codes, dict) and codes:
+        first = next(iter(codes.values()))
+        if isinstance(first, list) and first:
+            return str(first[0])
+        return str(first)
+    if isinstance(codes, str):
+        return codes
+    return None
