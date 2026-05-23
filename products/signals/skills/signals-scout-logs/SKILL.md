@@ -11,9 +11,9 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus the logs tool family
-  (logs-count, logs-count-ranges, logs-sparkline-query, query-logs, logs-attributes-list,
-  logs-attribute-values-list, logs-alerts-list).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  the logs tool family (logs-count, logs-count-ranges, logs-sparkline-query, query-logs,
+  logs-attributes-list, logs-attribute-values-list, logs-alerts-list).
 metadata:
   owner_team: signals
   scope: logs
@@ -30,16 +30,15 @@ loud today; you have to ask.
 ## Quick close-out: are logs even in use?
 
 If `logs-count` over the last 24h returns zero or near-zero, this team isn't using
-logs. Write one memory entry:
+logs. Write one scratchpad entry:
 
-- key: `logs-not-in-use-team{team_id}`
-- tags: `domain:logs`, `tag:not_in_use`
-- ttl_days: 14
-- body: brief note ("checked at {timestamp}, logs-count over 24h ≈ 0")
+- key: `not-in-use:logs:team{team_id}`
+- content: brief note ("checked at {timestamp}, logs-count over 24h ≈ 0")
 
-Close out empty. Future logs runs will read this memory cold and short-circuit
-in seconds. The 14-day TTL gives the team room to start sending logs without the
-scout staying blind forever.
+Close out empty. Future logs runs will read this entry cold and short-circuit in
+seconds. Re-running with the same key idempotently refreshes the timestamp — the entry
+stays until logs ingestion actually shows up, at which point the next run rewrites or
+deletes it.
 
 ## How a run works
 
@@ -49,9 +48,9 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:logs`) — durable team steering from
-  past logs-focused runs. **Memories tagged `pattern`, `noise`, `addressed`, `dedupe`
-  tell you what's normal, what's already surfaced, what to skip.**
+- `signals-scout-scratchpad-search` (`text=logs` or `text=service`) — durable team steering
+  from past logs-focused runs. **Entries with `pattern:`, `noise:`, `addressed:`, or
+  `dedupe:` key prefixes tell you what's normal, what's already surfaced, what to skip.**
 - `signals-scout-runs-list` (last 7d) — what prior logs scouts found and ruled out.
 - `logs-count` over 24h vs `logs-count` over 7d-prior 24h baseline — the cheap
   is-anything-loud-today check. `logs-count-ranges` adds severity / service breakdown.
@@ -117,20 +116,20 @@ is a high-confidence finding — the team has the alert plumbing but not the inb
 
 ### Save memory as you go
 
-Memory is a continuous activity. Write an entry whenever you observe something a future
-logs run should know:
+Memory is a continuous activity. Write a scratchpad entry whenever you observe something
+a future logs run should know. Encode the "category" in the key prefix — `pattern:`,
+`noise:`, `addressed:`, `dedupe:` — so future runs can find it with a single `text=` search:
 
-- _"Service `temporal-worker` typical log volume: ~12k/hour with ~3% error severity.
-  Anything > 10% error in the recent window is fresh degradation."_ (`pattern`,
-  `domain:logs`, `entity:temporal-worker`)
-- _"Log message `connection refused: rabbitmq:5672` is recurring noise during deploy
-  windows (Mon/Wed 14:00 UTC) — auto-recovers within 5 min."_ (`noise`, `domain:logs`)
-- _"Logs alert `db-connection-pool-saturated` (id 47) auto-mutes 02:00–04:00 UTC for
-  nightly batch — firing outside that window is real."_ (`pattern`, `domain:logs`,
-  `entity:alert-47`)
-- _"Service `cdp-worker` migrated to a new runtime on 2026-04-30 — log volume baseline
-  shifted from 8k/hour to 14k/hour, treat new baseline as normal."_ (`addressed`,
-  `domain:logs`, `entity:cdp-worker`)
+- key `pattern:logs:temporal-worker` — _"Service `temporal-worker` typical log volume:
+  ~12k/hour with ~3% error severity. Anything > 10% error in the recent window is fresh
+  degradation."_
+- key `noise:logs:rabbitmq-deploy-window` — _"Log message `connection refused: rabbitmq:5672`
+  is recurring noise during deploy windows (Mon/Wed 14:00 UTC) — auto-recovers within 5 min."_
+- key `pattern:logs:alert-47` — _"Logs alert `db-connection-pool-saturated` (id 47) auto-mutes
+  02:00–04:00 UTC for nightly batch — firing outside that window is real."_
+- key `addressed:logs:cdp-worker-2026-04-30` — _"Service `cdp-worker` migrated to a new
+  runtime on 2026-04-30 — log volume baseline shifted from 8k/hour to 14k/hour, treat new
+  baseline as normal."_
 
 By run #5 you'll know per-service volume and severity baselines, which alerts are
 intentional outliers, and only surface fresh shifts.
@@ -139,23 +138,23 @@ intentional outliers, and only surface fresh shifts.
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete service /
   message / time-range evidence.
 - **Remember** if below the bar but worth carrying forward.
-- **Skip** with a one-line note if a memory entry tagged `noise` or `addressed` already
-  covers it.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
+  key prefix already covers it.
 
-If a prior run already covered the topic, default to skip + memory refresh rather than
-re-emit. Same fact twice in the inbox degrades signal-to-noise more than missing one
-finding for one tick.
+If a prior run already covered the topic, default to skip + scratchpad refresh rather
+than re-emit. Same fact twice in the inbox degrades signal-to-noise more than missing
+one finding for one tick.
 
 ### Close out
 
-1. **Write run-metadata memory** — one entry tagged `run_metadata`, `domain:logs`,
-   `ttl_days=7`. Body: one sentence on what you looked at and the headline outcome.
-2. **Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
-   ruled out what. The harness writes this to the run row as searchable prose.
+**Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
+ruled out what. The harness writes this to the run row as searchable prose; future runs
+read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata"
+scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -168,8 +167,8 @@ finding for one tick.
   30–60 minutes. Memory should record the team's typical deploy windows.
 - **Logs alerts in muted / snoozed state** — explicit team decision; don't override.
 - **Log error already covered by error tracking** — if a log record correlates 1:1
-  with an `$exception` issue already surfaced, that issue's finding (or a memory entry
-  tagged `dedupe`) governs. Don't double-emit.
+  with an `$exception` issue already surfaced, that issue's finding (or a scratchpad
+  entry with `dedupe:` key prefix) governs. Don't double-emit.
 
 When in doubt, write a memory entry instead of emitting.
 
@@ -192,15 +191,15 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 ## When to stop
 
 - Volume + severity at baseline, no fresh patterns → close out empty.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` → skip
-  with a one-line note.
+- A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
+  prefix → skip with a one-line note.
 - You've validated some hypotheses and emitted what's solid → close out.
 
 "Looked but found nothing meaningful" is a real outcome.

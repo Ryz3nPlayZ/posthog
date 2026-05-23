@@ -10,8 +10,9 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus standard analytics + LLM tools
-  (query-llm-traces-list, query-llm-trace, llma-evaluation-list, get-llm-total-costs-for-project).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  standard analytics + LLM tools (query-llm-traces-list, query-llm-trace, llma-evaluation-list,
+  get-llm-total-costs-for-project).
 metadata:
   owner_team: signals
   scope: llm_analytics
@@ -28,16 +29,15 @@ outcome; re-emitting a known issue is worse than emitting nothing.
 
 If `$ai_generation`, `$ai_evaluation`, `$ai_trace`, `$ai_span`, `$ai_metric`, `$ai_feedback`
 are all absent from `top_events` **and** `get-llm-total-costs-for-project` shows
-near-zero spend, this team isn't using LLM analytics. Write one memory entry:
+near-zero spend, this team isn't using LLM analytics. Write one scratchpad entry:
 
-- key: `llm-analytics-not-in-use-team{team_id}`
-- tags: `domain:llm_analytics`, `tag:not_in_use`
-- ttl_days: 14
-- body: brief note ("checked at {timestamp}, no LLM events in top_events, $0 cost")
+- key: `not-in-use:llm_analytics:team{team_id}`
+- content: brief note ("checked at {timestamp}, no LLM events in top_events, $0 cost")
 
-Close out empty. Future LLM-analytics runs will read this memory cold and short-circuit
-in seconds. The 14-day TTL gives the team room to start using LLM analytics without
-the scout staying blind forever.
+Close out empty. Future LLM-analytics runs will read this entry cold and short-circuit
+in seconds. Re-running with the same key idempotently refreshes the timestamp — the
+entry stays until LLM analytics actually shows up, at which point the next run rewrites
+or deletes it.
 
 ## How a run works
 
@@ -47,9 +47,10 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:llm_analytics`) — durable team
-  steering inherited from past LLM-focused runs. **Memories tagged `pattern`, `noise`,
-  `addressed`, `dedupe` tell you what's normal, what's already surfaced, what to skip.**
+- `signals-scout-scratchpad-search` (`text=llm` or `text=ai_`) — durable team
+  steering inherited from past LLM-focused runs. **Entries with `pattern:`, `noise:`,
+  `addressed:`, or `dedupe:` key prefixes tell you what's normal, what's already
+  surfaced, what to skip.**
 - `signals-scout-runs-list` (last 7d) — what prior LLM-analytics scouts found and ruled
   out. Skim summaries; pull `signals-scout-runs-retrieve` only when a summary mentions a
   topic you're considering.
@@ -106,17 +107,19 @@ use case or a regression.
 
 ### Save memory as you go
 
-Memory is a continuous activity, not an end-of-run wrap-up. Write an entry whenever you
-observe something a future LLM-analytics run should know:
+Memory is a continuous activity, not an end-of-run wrap-up. Write a scratchpad entry
+whenever you observe something a future LLM-analytics run should know. Encode the
+"category" in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:` — so future
+runs can find it with a single `text=` search:
 
-- _"This team's `$ai_generation` baseline is ~5k/day across ~3k distinct users; 1.6:1
-  ratio is normal for their multi-step agent."_ (`pattern`, `domain:llm_analytics`)
-- _"Eval `relevance-judge` flakes ~5% per run — flag only if pass-rate drops below
-  80%."_ (`noise`, `domain:llm_analytics`, `entity:relevance-judge`)
-- _"Nightly batch eval runs ~02:00–04:00 UTC and accounts for ~40% of daily cost —
-  not a runaway, recurring."_ (`pattern`, `domain:llm_analytics`)
-- _"Switched primary model from Sonnet to Opus 2026-04-28; cost ~2.1x baseline expected."_
-  (`addressed`, `domain:llm_analytics`, `entity:model_swap_2026-04-28`)
+- key `pattern:llm_analytics:generation-baseline` — _"This team's `$ai_generation` baseline
+  is ~5k/day across ~3k distinct users; 1.6:1 ratio is normal for their multi-step agent."_
+- key `noise:llm_analytics:relevance-judge` — _"Eval `relevance-judge` flakes ~5% per run —
+  flag only if pass-rate drops below 80%."_
+- key `pattern:llm_analytics:nightly-batch-eval` — _"Nightly batch eval runs ~02:00–04:00
+  UTC and accounts for ~40% of daily cost — not a runaway, recurring."_
+- key `addressed:llm_analytics:model-swap-2026-04-28` — _"Switched primary model from Sonnet
+  to Opus 2026-04-28; cost ~2.1x baseline expected."_
 
 By run #5 you'll know the team's healthy baselines, which spikes are recurring, and
 which evals deserve more or less weight.
@@ -125,14 +128,14 @@ which evals deserve more or less weight.
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Findings carry a hypothesis, evidence, severity, weight ∈ [0, 1], and confidence ∈ [0, 1].
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete trace IDs or
   query results in the evidence.
 - **Remember** if it's below the bar but worth carrying forward, or to record what you
   ruled out and why.
-- **Skip** with a one-line note in your final summary if a memory entry tagged `noise`
-  or `addressed` already covers it.
+- **Skip** with a one-line note in your final summary if a scratchpad entry with a
+  `noise:` or `addressed:` key prefix already covers it.
 
 If a prior run already covered the topic, default to skip + memory refresh rather than
 re-emit. Re-emitting the same finding twice degrades signal-to-noise in the inbox more
@@ -140,18 +143,16 @@ than missing one finding for one tick.
 
 ### Close out
 
-Two things every run, in this order:
-
-1. **Write run-metadata memory** — one entry tagged `run_metadata`, `domain:llm_analytics`,
-   `ttl_days=7`. Body: one sentence on what you looked at and the headline outcome.
-2. **Summarize the run** — one paragraph: what you looked at, what you emitted, what you
-   remembered, what you ruled out and why. The harness writes that summary to the run
-   row as searchable prose.
+**Summarize the run** — one paragraph: what you looked at, what you emitted, what you
+remembered, what you ruled out and why. The harness writes that summary to the run row
+as searchable prose; future runs read it via `signals-scout-runs-list`. Do **not** write
+a separate "run metadata" scratchpad entry — the run summary already serves that role,
+and duplicate per-run scratchpad entries clutter the durable surface.
 
 ## Disqualifiers (skip these)
 
 - **Anthropic / OpenAI rate-limit errors** — surface in the error-tracking lens too. If
-  memory has a `noise` entry for them, skip; otherwise leave one.
+  the scratchpad has a `noise:` entry for them, skip; otherwise leave one.
 - **Single developer testing locally** — `properties.environment ∈ {dev, local}` or
   internal user. Filter before weighing.
 - **CI / eval runs** — large bursts of `$ai_evaluation` from a CI pipeline are not
@@ -177,9 +178,9 @@ Direct calls (read-only):
 Harness-level:
 
 - `signals-scout-project-profile-get` — cold orientation snapshot.
-- `signals-scout-scratchpad-list` / `signals-scout-scratchpad-create` — durable steering across runs.
+- `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering across runs.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
-- `signals-scout-runs-findings-create` — emit a finding.
+- `signals-scout-emit-signal` — emit a finding.
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:exploring-llm-traces` (debugging individual traces, agent decisions, context
@@ -190,9 +191,9 @@ drilling into individual traces).
 
 ## When to stop
 
-- Memory + recent runs + profile are quiet → close out empty.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` → skip
-  with a one-line note.
+- Scratchpad + recent runs + profile are quiet → close out empty.
+- A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
+  prefix → skip with a one-line note.
 - You've validated some hypotheses and emitted what's solid → close out, even if
   there's more you could look at. Fewer, better signals.
 

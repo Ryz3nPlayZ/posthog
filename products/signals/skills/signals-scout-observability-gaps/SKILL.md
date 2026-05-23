@@ -12,9 +12,9 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus standard analytics + entity tools
-  (read-data-schema, query-trends, insights-list, dashboards-get-all, event-definitions-list,
-  alerts-list, execute-sql).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  standard analytics + entity tools (read-data-schema, query-trends, insights-list,
+  dashboards-get-all, event-definitions-list, alerts-list, execute-sql).
 metadata:
   owner_team: signals
   scope: observability_gaps
@@ -38,17 +38,16 @@ fewer, well-evidenced recommendations.
 
 If `top_events` in the project profile is null or shows fewer than ~5 events firing
 above 100/day, the project is too quiet for observability-gap analysis to surface real
-recommendations. Write one memory entry:
+recommendations. Write one scratchpad entry:
 
-- key: `observability-gaps-not-applicable-team{team_id}`
-- tags: `domain:observability_gaps`, `tag:not_applicable`
-- ttl_days: 14
-- body: brief note ("checked at {timestamp}, top_events count <5 above 100/day, too
+- key: `not-applicable:observability_gaps:team{team_id}`
+- content: brief note ("checked at {timestamp}, top_events count <5 above 100/day, too
   quiet for gap analysis")
 
-Close out empty. Future observability-gaps runs will read this memory cold and short-
-circuit in seconds. The 14-day TTL gives the team room to grow into meaningful volume
-without the scout staying blind forever.
+Close out empty. Future observability-gaps runs read this entry cold and short-circuit
+in seconds. Re-running with the same key idempotently refreshes the timestamp — the
+entry stays until the team grows into meaningful volume, at which point the next run
+rewrites or deletes it.
 
 ## How a run works
 
@@ -58,10 +57,11 @@ Cycle between these moves; skip what's not useful, revisit what is.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:observability_gaps`) — durable team
-  steering inherited from past observability runs. **Memories tagged `pattern`,
-  `noise`, `addressed`, `dedupe` tell you what's normal, what's already surfaced, what
-  to skip.** Critical here because the same gap should never be re-emitted across runs.
+- `signals-scout-scratchpad-search` (`text=gap` or `text=observability`) — durable team
+  steering inherited from past observability runs. **Entries with `pattern:`, `noise:`,
+  `addressed:`, or `dedupe:` key prefixes tell you what's normal, what's already
+  surfaced, what to skip.** Critical here because the same gap should never be re-emitted
+  across runs.
 - `signals-scout-runs-list` (last 14d) — what prior observability-gap scouts found and
   what was ruled out. Skim summaries; pull `signals-scout-runs-retrieve` only when a
   summary mentions a recommendation you're considering.
@@ -201,14 +201,10 @@ confidence bar trades off:
 
 ### Close out
 
-Two things every run, in this order:
-
-1. **Write run-metadata memory** — one entry tagged `run_metadata`,
-   `domain:observability_gaps`, `ttl_days=7`. Body: one sentence on what you looked at
-   and the headline outcome.
-2. **Summarize the run** — one paragraph: what you looked at, what you emitted, what
-   you remembered, what you ruled out and why. The harness writes that summary to the
-   run row as searchable prose.
+**Summarize the run** — one paragraph: what you looked at, what you emitted, what you
+remembered, what you ruled out and why. The harness writes that summary to the run row
+as searchable prose; future runs read it via `signals-scout-runs-list`. Do **not** write
+a separate "run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -216,16 +212,16 @@ Two things every run, in this order:
   `$set`, `$opt_in`, `$groupidentify`, `$feature_flag_called` are surfaced through
   PostHog's product views (Web Analytics, Feature Flags) without needing a custom
   insight. Don't recommend creating one.
-- **Test events from internal users** — pin a memory `noise` entry for known internal
-  distinct_ids and skip them in volume counts.
+- **Test events from internal users** — pin a `noise:observability_gaps:internal-distinct-ids`
+  scratchpad entry for known internal distinct_ids and skip them in volume counts.
 - **Events from disabled feature flags** — if the event only fires when a flag is
   disabled or only for a tiny rollout %, the volume is artificially low.
 - **Events on ad-hoc one-off dashboards** — a private dashboard with one viewer doesn't
   count as "covered." Use the `popular_insights` viewer-count threshold.
 
-When in doubt, write a memory entry instead of emitting. Recommendations have a high
-panic radius for whoever owns the observability surface — false positives erode trust
-fast.
+When in doubt, write a scratchpad entry instead of emitting. Recommendations have a
+high panic radius for whoever owns the observability surface — false positives erode
+trust fast.
 
 ## MCP tools
 
@@ -247,9 +243,9 @@ Harness-level:
 
 - `signals-scout-project-profile-get` — cold orientation snapshot. Has `top_events`,
   `popular_insights[13]`, `recent_dashboards`, `existing_inbox_reports` already.
-- `signals-scout-scratchpad-list` / `signals-scout-scratchpad-create` — durable steering.
+- `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
-- `signals-scout-runs-findings-create` — emit a recommendation finding.
+- `signals-scout-emit-signal` — emit a recommendation finding.
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and
@@ -258,10 +254,10 @@ each lens applies).
 
 ## When to stop
 
-- Memory + recent runs + profile show every domain you've considered already has
+- Scratchpad + recent runs + profile show every domain you've considered already has
   coverage or has been recommended → close out empty.
-- A candidate matches a memory entry tagged `addressed` (recommendation actioned) or
-  `noise` (recommended but ignored) → skip with a one-line note.
+- A candidate matches a scratchpad entry with `addressed:` (recommendation actioned) or
+  `noise:` (recommended but ignored) key prefix → skip with a one-line note.
 - You've validated 1-2 high-confidence gaps and emitted them → close out, even if
   there's more you could look at. Quality over volume — recommendations are a budget,
   not a target.

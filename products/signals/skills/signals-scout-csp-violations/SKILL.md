@@ -12,8 +12,9 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus standard analytics tools
-  (execute-sql, read-data-schema, activity-log-list, inbox-reports-list).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  standard analytics tools (execute-sql, read-data-schema, activity-log-list,
+  inbox-reports-list).
 metadata:
   owner_team: signals
   scope: csp_violations
@@ -36,23 +37,20 @@ users + distinct documents) matters more than raw count**. Internalize that shap
 
 If `$csp_violation` is absent from `top_events` or its `count` is at baseline (no fresh
 24h activity, `recent_24h_count` ≪ `count / 7`), CSP reporting probably isn't where the
-signal is today. Cheap memory entry + close out:
+signal is today. Cheap scratchpad entry + close out:
 
-- key: `csp-quiet-team{team_id}-{date}`
-- tags: `domain:csp_violations`, `tag:quiet_run`
-- ttl_days: 1
-- body: `"$csp_violation baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
+- key: `pattern:csp_violations:baseline-team{team_id}`
+- content: `"$csp_violation baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
 If `$csp_violation` is absent from `top_events` entirely (project doesn't ship a CSP
 reporting endpoint at all):
 
-- key: `csp-not-in-use-team{team_id}`
-- tags: `domain:csp_violations`, `tag:not_in_use`
-- ttl_days: 14
-- body: brief note (`"no $csp_violation events in 7d window at {timestamp}"`)
+- key: `not-in-use:csp_violations:team{team_id}`
+- content: brief note (`"no $csp_violation events in 7d window at {timestamp}"`)
 
-Close out empty in both cases. The 14-day TTL on `not_in_use` gives the team room to
-adopt CSP reporting without the scout staying blind forever.
+Close out empty in both cases. Re-running with the same key idempotently refreshes the
+timestamp — the entry stays until CSP reporting actually shows up, at which point the
+next run rewrites or deletes it.
 
 ## How a run works
 
@@ -62,10 +60,10 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:csp_violations`) — durable team
-  steering from past CSP runs. Memories tagged `pattern`, `noise`, `addressed`,
-  `dedupe`, `allowlist` tell you the team's healthy domains, recurring browser-extension
-  noise, fingerprints already surfaced, and what to skip.
+- `signals-scout-scratchpad-search` (`text=csp` or `text=blocked`) — durable team steering
+  from past CSP runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, or
+  `allowlist:` key prefixes tell you the team's healthy domains, recurring
+  browser-extension noise, fingerprints already surfaced, and what to skip.
 - `signals-scout-runs-list` (last 7d) — what prior CSP scouts found and ruled out.
 - `signals-scout-project-profile-get` — the `$csp_violation` row in `top_events` carries
   `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`. Pattern the
@@ -130,8 +128,8 @@ they're the prompt the team needs:
    loaded from a deprecated bundle, ad pixel from a churned vendor, etc.
 
 Emit only when one of these lenses fits with high confidence (≥ 0.85). If you're
-genuinely unsure which of the three it is, memory it as `pattern` for the next run and
-close out.
+genuinely unsure which of the three it is, write a `pattern:csp_violations:<entity>`
+scratchpad entry for the next run and close out.
 
 #### Per-directive burst
 
@@ -158,7 +156,7 @@ High-value finding when the document is a critical funnel page (`/checkout`, `/s
 
 `count` very high but `distinct_users` ≤ 5 over the recent window. Almost always a single
 user with a misbehaving browser extension, or a bot probing the page. Skip — write a
-`noise` memory entry tagged `entity:<blocked_domain>` so future runs short-circuit.
+`noise:csp_violations:<blocked_domain>` scratchpad entry so future runs short-circuit.
 
 Common skippable patterns:
 
@@ -172,48 +170,50 @@ Group by `properties.$csp_disposition`. A team running `report-only` for a long 
 then flipping to `enforce` will see violations turn into actual blocks. If the project
 profile shows `count` for `disposition='enforce'` rising sharply (`recent_24h_count`
 materially above baseline) while `report-only` shows a corresponding fall, the team has
-flipped enforcement — flag this as a `pattern` memory entry and emit only if a critical
-page is suddenly seeing enforced blocks.
+flipped enforcement — write a `pattern:csp_violations:disposition-flip` scratchpad entry
+and emit only if a critical page is suddenly seeing enforced blocks.
 
 ### Save memory as you go
 
-Memory is a continuous activity. Write an entry whenever you observe something a future
-CSP run should know:
+Memory is a continuous activity. Write a scratchpad entry whenever you observe something
+a future CSP run should know. Encode the "category" in the key prefix — `pattern:`,
+`noise:`, `addressed:`, `dedupe:`, `allowlist:` — so future runs find it with a single
+`text=` search:
 
-- _"Project's healthy `$csp_violation` baseline: ~800/day across ~120 distinct users,
-  mostly `img-src` from `_.googletagmanager.com`and`_.googlesyndication.com`. Anything
-  above 1.5× this baseline is fresh."_ (`pattern`, `domain:csp_violations`)
-- _"`_.googletagmanager.com`, `_.googlesyndication.com`, `_.doubleclick.net` are the
-team's expected analytics/ads domains — known, vetted, do not re-surface."*
-(`allowlist`, `domain:csp_violations`, `entity:gtm`)
-- _"Blocked URL pattern `chrome-extension://_`is a recurring browser-extension noise
-source for this team — skip unless`disposition=enforce`and`effective_directive=script-src`."*
-(`noise`, `domain:csp_violations`)
-- _"Surfaced fresh `script-src` cluster from `cdn.suspicious.example.com` on 2026-05-12;
-  team confirmed it was a legitimate new vendor, allowlisted in policy on 2026-05-13.
-  Do not re-emit unless the domain re-appears after policy was widened."_
-  (`addressed`, `domain:csp_violations`, `entity:cdn.suspicious.example.com`)
-- _"Fingerprint `a1b2c3d4...` (`script-src` | `evil.example.com/x.js` | `/checkout` |
-  `bundle.js`) — surfaced 2026-05-08, finding still open in inbox. If this exact
-  fingerprint fires again, attach to the existing report; don't emit fresh."_
-  (`dedupe`, `domain:csp_violations`, `entity:a1b2c3d4`)
+- key `pattern:csp_violations:baseline` — _"Project's healthy `$csp_violation` baseline:
+  ~800/day across ~120 distinct users, mostly `img-src` from `*.googletagmanager.com`
+  and `*.googlesyndication.com`. Anything above 1.5× this baseline is fresh."_
+- key `allowlist:csp_violations:gtm` — _"`*.googletagmanager.com`,
+  `*.googlesyndication.com`, `*.doubleclick.net` are the team's expected analytics/ads
+  domains — known, vetted, do not re-surface."_
+- key `noise:csp_violations:chrome-extension-scheme` — _"Blocked URL pattern
+  `chrome-extension://*` is a recurring browser-extension noise source for this team —
+  skip unless `disposition=enforce` and `effective_directive=script-src`."_
+- key `addressed:csp_violations:cdn.suspicious.example.com-2026-05-13` — _"Surfaced fresh
+  `script-src` cluster from `cdn.suspicious.example.com` on 2026-05-12; team confirmed
+  it was a legitimate new vendor, allowlisted in policy on 2026-05-13. Do not re-emit
+  unless the domain re-appears after policy was widened."_
+- key `dedupe:csp_violations:a1b2c3d4` — _"Fingerprint `a1b2c3d4...` (`script-src` |
+  `evil.example.com/x.js` | `/checkout` | `bundle.js`) — surfaced 2026-05-08, finding
+  still open in inbox. If this exact fingerprint fires again, attach to the existing
+  report; don't emit fresh."_
 
-By run #5 you'll have a per-team domain allowlist memory map, known browser-extension
-noise patterns, and the typical per-directive shape — and burn near-zero time on
-cold-start exploration.
+By run #5 you'll have a per-team domain allowlist in the scratchpad, known
+browser-extension noise patterns, and the typical per-directive shape — and burn
+near-zero time on cold-start exploration.
 
 ### Decide
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete blocked domain,
   effective directive(s), document URL(s), distinct-user count, time-range evidence,
   and an explicit lens (policy / compromise / vendor drift).
 - **Remember** if below the bar but worth carrying forward (e.g. fresh domain with only
   3 distinct users — let it ripen).
-- **Skip** with a one-line note if a memory entry tagged `noise`, `allowlist`,
-  `addressed`, or `dedupe` already covers it.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:`, `allowlist:`,
+  `addressed:`, or `dedupe:` key prefix already covers it.
 
 Cross-check `inbox-reports-list` filtered to `source_product=csp_reporting` before
 emitting — the push-based emission already drops individual fingerprints into the inbox
@@ -222,11 +222,10 @@ at weight 0.5. Your aggregated finding should reference those source signals as 
 
 ### Close out
 
-1. **Write run-metadata memory** — one entry tagged `run_metadata`,
-   `domain:csp_violations`, `ttl_days=7`. Body: one sentence on what you looked at and
-   the headline outcome.
-2. **Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
-   ruled out what.
+**Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
+ruled out what. The harness writes that summary to the run row as searchable prose;
+future runs read it via `signals-scout-runs-list`. Do **not** write a separate
+"run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -234,12 +233,12 @@ at weight 0.5. Your aggregated finding should reference those source signals as 
   browser extension or a niche client. Low `count` AND `distinct_users` ≤ 2.
 - **Blocked URL scheme is `chrome-extension://` / `moz-extension://` / `about:` /
   `data:`** — browser-side, not server-side; team can't fix.
-- **Domain matches an `allowlist`-tagged memory entry** — the team has already
+- **Domain matches an `allowlist:` scratchpad entry** — the team has already
   vetted this vendor; skip without re-surfacing.
 - **`disposition=report-only` with no enforcement signal** — the team is deliberately
   collecting violations to refine policy. Emit only when reach / freshness / domain
   novelty is exceptional.
-- **Fingerprint matches a `dedupe`-tagged memory entry from an open inbox report** —
+- **Fingerprint matches a `dedupe:` scratchpad entry from an open inbox report** —
   the push-emission path already covered it; don't double-up.
 - **Team has no `signal_source_config` row for `csp_reporting`** — push emission is
   off for this team. Scout can still find clusters, but the user signal is "team
@@ -263,15 +262,15 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 ## When to stop
 
 - `$csp_violation` row in profile is at baseline → close out empty.
-- A candidate matches a memory entry tagged `noise` / `allowlist` / `addressed` /
-  `dedupe` → skip.
+- A candidate matches a scratchpad entry with `noise:` / `allowlist:` / `addressed:` /
+  `dedupe:` key prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if
   there's more you could look at. Fewer, better signals.
 

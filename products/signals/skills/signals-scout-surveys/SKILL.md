@@ -12,9 +12,10 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus the surveys MCP tools
-  (surveys-get-all, survey-get, survey-stats, surveys-global-stats) and standard
-  analytics tools (execute-sql, query-trends, read-data-schema, activity-log-list).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  the surveys MCP tools (surveys-get-all, survey-get, survey-stats, surveys-global-stats)
+  and standard analytics tools (execute-sql, query-trends, read-data-schema,
+  activity-log-list).
 metadata:
   owner_team: signals
   scope: surveys
@@ -43,16 +44,14 @@ panic radius for a wrong "users hate feature X" finding is high.
 
 If `surveys-get-all` (with `archived: false`) returns an empty list **and**
 `surveys-global-stats` shows zero events in the last 30 days, surveys aren't active on
-this project. Write one memory entry:
+this project. Write one scratchpad entry:
 
-- key: `surveys-not-in-use-team{team_id}`
-- tags: `domain:surveys`, `tag:not_in_use`
-- ttl_days: 14
-- body: brief note ("checked at {timestamp}, no active surveys, no survey events")
+- key: `not-in-use:surveys:team{team_id}`
+- content: brief note ("checked at {timestamp}, no active surveys, no survey events")
 
-Close out empty. Future surveys runs read this memory cold and short-circuit fast.
-14-day TTL gives the team room to start using surveys without the scout staying
-blind forever.
+Close out empty. Future surveys runs read this entry cold and short-circuit fast.
+Re-running with the same key idempotently refreshes the timestamp — the entry stays
+until surveys actually become active, at which point the next run rewrites or deletes it.
 
 ## How a run works
 
@@ -62,10 +61,10 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:surveys`) — durable team steering.
-  Memories tagged `pattern`, `noise`, `addressed`, `dedupe`, plus the team's known
-  active survey IDs, primary NPS / CSAT survey, healthy response baselines, and known
-  themes already raised.
+- `signals-scout-scratchpad-search` (`text=survey` or `text=nps`) — durable team steering.
+  Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` key prefixes, plus the
+  team's known active survey IDs, primary NPS / CSAT survey, healthy response baselines,
+  and known themes already raised.
 - `signals-scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
 - `signals-scout-project-profile-get` — `top_events` for `survey shown` /
   `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced
@@ -350,24 +349,24 @@ the right baseline.
 
 ### Save memory as you go
 
-Memory is a continuous activity. Write an entry whenever you observe something a future
-surveys run should know:
+Memory is a continuous activity. Write a scratchpad entry whenever you observe something
+a future surveys run should know. Encode the "category" in the key prefix — `pattern:`,
+`noise:`, `addressed:`, `dedupe:` — so future runs find it with a single `text=` search:
 
-- _"Active surveys: `nps-q1-2026` (id `abc`, NPS 0–10), `feedback-modal` (id `def`,
-  open text), `csat-after-purchase` (id `ghi`, 1–5 rating)."_ (`pattern`,
-  `domain:surveys`)
-- _"Primary NPS survey is `nps-q1-2026`; healthy baseline 32 ± 5 over last 90 days,
-  ~120 responses/week. Score < 25 or responses < 60/week is the alert bar."_
-  (`pattern`, `domain:surveys`, `entity:nps-q1-2026`)
-- _"`feedback-modal` exit-intent survey naturally has 70% dismiss rate — that's
-  expected behavior for this trigger, not a regression."_ (`noise`, `domain:surveys`,
-  `entity:feedback-modal`)
-- _"Theme `checkout-step-2-confusion` raised in run on 2026-04-30; team acknowledged,
-  fix shipped 2026-05-04. Don't re-emit unless theme reappears post-2026-05-04."_
-  (`addressed`, `domain:surveys`, `entity:theme-checkout-step-2`)
-- _"Survey `csat-old` last got responses 2026-02; appears abandoned but the team still
-  has it active. P3 recommendation already filed; don't re-recommend."_ (`addressed`,
-  `domain:surveys`, `entity:csat-old`)
+- key `pattern:surveys:active-inventory` — _"Active surveys: `nps-q1-2026` (id `abc`,
+  NPS 0–10), `feedback-modal` (id `def`, open text), `csat-after-purchase` (id `ghi`,
+  1–5 rating)."_
+- key `pattern:surveys:nps-q1-2026` — _"Primary NPS survey is `nps-q1-2026`; healthy
+  baseline 32 ± 5 over last 90 days, ~120 responses/week. Score < 25 or responses
+  < 60/week is the alert bar."_
+- key `noise:surveys:feedback-modal` — _"`feedback-modal` exit-intent survey naturally
+  has 70% dismiss rate — that's expected behavior for this trigger, not a regression."_
+- key `addressed:surveys:theme-checkout-step-2-2026-05-04` — _"Theme
+  `checkout-step-2-confusion` raised in run on 2026-04-30; team acknowledged, fix shipped
+  2026-05-04. Don't re-emit unless theme reappears post-2026-05-04."_
+- key `addressed:surveys:csat-old-stale` — _"Survey `csat-old` last got responses
+  2026-02; appears abandoned but the team still has it active. P3 recommendation already
+  filed; don't re-recommend."_
 
 By run #5 you'll know the team's active surveys, healthy response volumes, score
 baselines, which dismiss rates are structural, and which themes have already been
@@ -378,26 +377,26 @@ context already attached.
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete survey ids,
   question ids, response counts, score deltas, and (for themes) 2–3 verbatim quotes
   in the evidence. Sample-size matters here more than other domains — a finding on
   10 responses needs to be tighter than one on 200.
 - **Remember** if below the bar but worth carrying forward (a theme with only 3
   respondents that might grow, a score wobble that didn't yet hold for two weeks).
-- **Skip** with a one-line note if a memory entry tagged `noise` or `addressed`
-  already covers it.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
+  key prefix already covers it.
 
 Cross-check `inbox-reports-list` before emitting — if the same theme is already in the
-inbox from a prior run or another source, refresh memory rather than re-emit.
+inbox from a prior run or another source, refresh the scratchpad rather than re-emit.
 
 ### Close out
 
-1. **Write run-metadata memory** — one entry tagged `run_metadata`, `domain:surveys`,
-   `ttl_days=7`. Body: one sentence on what surveys you looked at and the headline
-   outcome.
-2. **Summarize the run** — one paragraph: which surveys, what themes / anomalies you
-   found, what you emitted, what you remembered, what you ruled out.
+**Summarize the run** — one paragraph: which surveys, what themes / anomalies you found,
+what you emitted, what you remembered, what you ruled out. The harness writes that
+summary to the run row as searchable prose; future runs read it via
+`signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry —
+the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -407,8 +406,8 @@ inbox from a prior run or another source, refresh memory rather than re-emit.
   trust; memory entry only.
 - **Themes evenly split between positive and negative** — they cancel each other; no
   single direction to surface.
-- **Theme matching an `addressed` memory entry** — the team already saw it and acted;
-  re-emitting wastes inbox space.
+- **Theme matching an `addressed:` scratchpad entry** — the team already saw it and
+  acted; re-emitting wastes inbox space.
 - **One-off rant or off-topic response** — a single user typing "AAAA" or
   quoting song lyrics isn't signal. Themes need ≥ 3 distinct respondents.
 - **Internal test / placeholder responses** — `TEST`, `TEST FEEDBACK DELETE!`,
@@ -462,9 +461,9 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 ### When you hit a gap
 
@@ -482,16 +481,17 @@ around in-skill:
   re-aggregating themes from scratch each run. Worth a P2 for accuracy and cost.
 
 If you notice a third gap during a run that would meaningfully unlock this scout,
-write a memory entry tagged `tag:mcp_gap`, `domain:surveys` so the gap surfaces in
-the next review.
+write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in
+the next review via `text=mcp-gap`.
 
 ## When to stop
 
 - No active surveys + no recent survey events → close out empty (after writing the
-  not-in-use memory).
-- Profile + memory show a stable picture (known baselines, no recent inflection) →
+  `not-in-use:` scratchpad entry).
+- Profile + scratchpad show a stable picture (known baselines, no recent inflection) →
   close out empty.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` → skip.
+- A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
+  prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if
   there's more you could look at. Themes especially — fewer, sharper findings beat
   a long list of weak clusters.

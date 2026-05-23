@@ -12,9 +12,10 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus warehouse + analytics tools
-  (external-data-sources-list, external-data-sync-logs, query-trends, execute-sql,
-  read-data-schema, dashboards-get-all, data-warehouse-data-health-issues-retrieve).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  warehouse + analytics tools (external-data-sources-list, external-data-sync-logs,
+  query-trends, execute-sql, read-data-schema, dashboards-get-all,
+  data-warehouse-data-health-issues-retrieve).
 metadata:
   owner_team: signals
   scope: revenue_analytics
@@ -43,16 +44,15 @@ than in any other domain. When in doubt, memory entry, not emit.
 ## Quick close-out: is revenue analytics even active?
 
 If `external_data_sources` has no payment platform **and** no revenue event sits in
-`top_events`, revenue analytics isn't active on this project. Write one memory entry:
+`top_events`, revenue analytics isn't active on this project. Write one scratchpad entry:
 
-- key: `revenue-analytics-not-in-use-team{team_id}`
-- tags: `domain:revenue_analytics`, `tag:not_in_use`
-- ttl_days: 14
-- body: brief note ("checked at {timestamp}, no payment platform, no revenue events")
+- key: `not-in-use:revenue_analytics:team{team_id}`
+- content: brief note ("checked at {timestamp}, no payment platform, no revenue events")
 
-Close out empty. Future revenue runs read this memory cold and short-circuit fast.
-14-day TTL gives the team room to start using revenue analytics without the scout
-staying blind forever.
+Close out empty. Future revenue runs read this entry cold and short-circuit fast.
+Re-running with the same key idempotently refreshes the timestamp — the entry stays
+until revenue analytics actually becomes active, at which point the next run rewrites
+or deletes it.
 
 ## How a run works
 
@@ -62,9 +62,9 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:revenue_analytics`) — durable team
-  steering. Memories tagged `pattern`, `noise`, `addressed`, `dedupe`, plus the
-  team's known revenue event name, Stripe source label, currency mix, and goals.
+- `signals-scout-scratchpad-search` (`text=revenue` or `text=stripe`) — durable team
+  steering. Entries with `pattern:`, `noise:`, `addressed:`, or `dedupe:` key prefixes,
+  plus the team's known revenue event name, Stripe source label, currency mix, and goals.
 - `signals-scout-runs-list` (last 7d) — what prior revenue runs found and ruled out.
 - `signals-scout-project-profile-get` — `external_data_sources` (Stripe status),
   `top_events` (configured revenue event reach), `popular_insights` /
@@ -129,8 +129,9 @@ empty because PostHog can't tell which charges belong to the same subscription. 
 dashboard renders but only gross revenue is meaningful.
 
 Detect: events configured with revenue + currency but no subscription property;
-gross-revenue chart populated, MRR chart empty. Memory-level finding for new-onboarding
-teams; emit-worthy if the team has been live long enough that they should have noticed.
+gross-revenue chart populated, MRR chart empty. Scratchpad-level finding for
+new-onboarding teams; emit-worthy if the team has been live long enough that they
+should have noticed.
 
 #### Currency mix surprise
 
@@ -144,8 +145,8 @@ GROUP BY 1 ORDER BY 2 DESC
 ```
 
 A currency that's never appeared before, or whose share suddenly jumped, usually means
-either (a) the team is selling into a new market — write memory, no emit, or (b)
-currency property is misconfigured and revenue is being mis-tagged. The (b) case
+either (a) the team is selling into a new market — write a scratchpad entry, no emit,
+or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case
 shows up as a single dominant currency on a non-USD team or vice versa. Cross-reference
 with `RevenueAnalyticsEventItem.currencyProperty` to tell them apart.
 
@@ -157,8 +158,8 @@ metadata (post-deploy regression in checkout flow), aggregate views still work b
 person-level revenue (group analytics, customer journeys) goes dark.
 
 Detect via the `customer` view: count of customers with non-null
-`posthog_person_distinct_id` in last 30d vs the 30d before. Memory-worthy if the team
-isn't using person-level revenue features; emit-worthy if they are (check
+`posthog_person_distinct_id` in last 30d vs the 30d before. Scratchpad-worthy if the
+team isn't using person-level revenue features; emit-worthy if they are (check
 `popular_insights` for person-breakdown revenue charts).
 
 #### Deferred revenue not deferring
@@ -178,50 +179,52 @@ under the goal, the team should already be reacting. If recent dashboard views h
 ticked up, they aren't watching. Surface the gap; let the team decide.
 
 Disqualifier: goals with `due_date` already past, where the team hasn't updated them —
-config debt, not active targets. Memory entry, skip emit.
+config debt, not active targets. Scratchpad entry, skip emit.
 
 #### Test-account contamination
 
 `RevenueAnalyticsConfig.filter_test_accounts = false` on a project with a
 `person.properties.email` filter set up for test accounts. Internal QA charges are
-being counted as real revenue. Easy memory entry; emit-worthy if memory shows the team
-has historically asked about "revenue jumped overnight" incidents and the cause was
-QA traffic.
+being counted as real revenue. Easy scratchpad entry; emit-worthy if the scratchpad
+shows the team has historically asked about "revenue jumped overnight" incidents and
+the cause was QA traffic.
 
 ### Save memory as you go
 
-Memory is a continuous activity. Write an entry whenever you observe something a future
-revenue run should know:
+Memory is a continuous activity. Write a scratchpad entry whenever you observe something
+a future revenue run should know. Encode the "category" in the key prefix — `pattern:`,
+`noise:`, `addressed:`, `dedupe:` — so future runs find it with a single `text=` search:
 
-- _"Revenue event is `purchase_completed`; revenue prop is `revenue` (cents), currency
-  prop is `currency`, subscription prop is `subscription_id`."_ (`pattern`,
-  `domain:revenue_analytics`)
-- _"Stripe source `stripe_prod` is the team's primary; `stripe_test` is sandbox and its
-  failures are expected."_ (`pattern`, `domain:revenue_analytics`, `entity:stripe_prod`)
-- _"Reporting currency is USD; `original_currency` regularly includes EUR / GBP / CAD —
-  multi-currency mix is normal for this team."_ (`pattern`, `domain:revenue_analytics`)
-- _"Team has revenue analytics goals configured; Q3 ARR target is $X by due_date
-  2026-09-30 — re-check progress monthly."_ (`pattern`, `domain:revenue_analytics`)
-- _"Revenue dashboard at `/revenue` was last viewed 2026-04-22; team isn't actively
-  watching — emit at higher confidence threshold."_ (`pattern`,
-  `domain:revenue_analytics`)
-- _"`filter_test_accounts` is off; QA charges from `@example.com` accounts appear in
-  revenue — already raised, team aware."_ (`addressed`, `domain:revenue_analytics`)
+- key `pattern:revenue_analytics:event-config` — _"Revenue event is `purchase_completed`;
+  revenue prop is `revenue` (cents), currency prop is `currency`, subscription prop is
+  `subscription_id`."_
+- key `pattern:revenue_analytics:stripe_prod` — _"Stripe source `stripe_prod` is the
+  team's primary; `stripe_test` is sandbox and its failures are expected."_
+- key `pattern:revenue_analytics:currency-mix` — _"Reporting currency is USD;
+  `original_currency` regularly includes EUR / GBP / CAD — multi-currency mix is normal
+  for this team."_
+- key `pattern:revenue_analytics:q3-arr-goal` — _"Team has revenue analytics goals
+  configured; Q3 ARR target is $X by due_date 2026-09-30 — re-check progress monthly."_
+- key `pattern:revenue_analytics:dashboard-staleness` — _"Revenue dashboard at `/revenue`
+  was last viewed 2026-04-22; team isn't actively watching — emit at higher confidence
+  threshold."_
+- key `addressed:revenue_analytics:test-accounts` — _"`filter_test_accounts` is off; QA
+  charges from `@example.com` accounts appear in revenue — already raised, team aware."_
 
-By run #5 you'll know the team's revenue config, currency mix, which dashboards are
-load-bearing, and whether finance is actively watching — so when something regresses,
-the finding lands with the right context already attached.
+By run #5 the scratchpad knows the team's revenue config, currency mix, which
+dashboards are load-bearing, and whether finance is actively watching — so when something
+regresses, the finding lands with the right context already attached.
 
 ### Decide
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete dashboard ids,
   source labels, view names, and quantified impact in the evidence.
 - **Remember** if below the bar but worth carrying forward.
-- **Skip** with a one-line note if a memory entry tagged `noise` or `addressed` already
-  covers it.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
+  key prefix already covers it.
 
 Cross-check `inbox-reports-list` before emitting — if a warehouse-source failure is
 already in the inbox, surface only the revenue-specific business impact angle (which
@@ -229,24 +232,23 @@ metrics are wrong, who reads them) rather than re-emitting the same upstream fai
 
 ### Close out
 
-1. **Write run-metadata memory** — one entry tagged `run_metadata`,
-   `domain:revenue_analytics`, `ttl_days=7`. Body: one sentence on what you looked at
-   and the headline outcome.
-2. **Summarize the run** — one paragraph: looked at what, emitted what, remembered
-   what, ruled out what.
+**Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
+ruled out what. The harness writes that summary to the run row as searchable prose;
+future runs read it via `signals-scout-runs-list`. Do **not** write a separate
+"run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
 - **Reporting currency just changed** — apparent step-change in all charts; not a
-  regression. Memory entry from a prior run usually flags this.
+  regression. A `pattern:` scratchpad entry from a prior run usually flags this.
 - **Revenue analytics in beta on the team's plan** — some teams use it as preview-only.
-  Memory should record this; if no memory, write one and skip.
+  The scratchpad should record this; if no entry exists, write one and skip.
 - **Sandbox / test Stripe source** — `prefix` like `test_` or `sandbox_` means the team
   is wiring up integration; failures here aren't production signal.
 - **Revenue event renamed by the team** — `RevenueAnalyticsConfig.events[].eventName`
   was updated recently; the "missing event" is the old name. Cross-check config recency
   before flagging.
-- **Goal expired with no follow-up** — config debt, not an active target. Memory
+- **Goal expired with no follow-up** — config debt, not an active target. Scratchpad
   entry, skip.
 
 When in doubt, write a memory entry instead of emitting.
@@ -274,9 +276,9 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 For deeper investigation, the sandbox image bakes
 `posthog:auditing-warehouse-data-health` (catches Stripe-source failures upstream of
@@ -286,9 +288,10 @@ for a failing sync).
 ## When to stop
 
 - No payment platform + no revenue event → close out empty (after writing the
-  not-in-use memory).
-- Profile + memory show a stable picture → close out empty.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` → skip.
+  `not-in-use:` scratchpad entry).
+- Profile + scratchpad show a stable picture → close out empty.
+- A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
+  prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if
   there's more you could look at. Fewer, better signals — especially here, where
   panic radius is high.

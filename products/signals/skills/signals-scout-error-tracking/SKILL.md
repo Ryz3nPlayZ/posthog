@@ -10,9 +10,9 @@ description: >
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes. Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  memory-list, runs-findings-create, memory-create) plus error-tracking + analytics
-  tools (error-tracking-issues-list, error-tracking-issues-retrieve, execute-sql,
-  activity-log-list, inbox-reports-list).
+  scratchpad-list, scratchpad-create, scratchpad-delete, runs-findings-create) plus
+  error-tracking + analytics tools (error-tracking-issues-list, error-tracking-issues-retrieve,
+  execute-sql, activity-log-list, inbox-reports-list).
 metadata:
   owner_team: signals
   scope: error_tracking
@@ -32,15 +32,15 @@ important signal-vs-noise discriminator. Internalize that shape.
 
 If `$exception` is absent from `top_events` or its `count` is at baseline (no fresh
 24h activity, `recent_24h_count` ≪ `count / 7`), error tracking probably isn't where
-the signal is today. Cheap memory entry + close out:
+the signal is today. Cheap scratchpad entry + close out:
 
-- key: `error-tracking-quiet-team{team_id}-{date}`
-- tags: `domain:error_tracking`, `tag:quiet_run`
-- ttl_days: 1
-- body: `"$exception baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
+- key: `not-in-use:error_tracking:team{team_id}` (if `$exception` is absent entirely)
+  **or** `pattern:error_tracking:baseline-team{team_id}` (if it fires at a steady baseline
+  with no fresh burst)
+- content: `"$exception baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
-Close out empty. Future error-tracking runs read this and skip the orientation reads
-if the timestamp is recent.
+Close out empty. Re-running with the same key idempotently refreshes the timestamp; the
+next run reads the entry cold and short-circuits.
 
 ## How a run works
 
@@ -50,9 +50,9 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-list` (filter `tags=domain:error_tracking`) — durable team
-  steering from past error-tracking runs. Memories tagged `pattern`, `noise`,
-  `addressed`, `dedupe` tell you what's normal, what's already surfaced, what to skip.
+- `signals-scout-scratchpad-search` (`text=error` or `text=exception`) — durable team
+  steering from past error-tracking runs. Entries with `pattern:`, `noise:`, `addressed:`,
+  or `dedupe:` key prefixes tell you what's normal, what's already surfaced, what to skip.
 - `signals-scout-runs-list` (last 7d) — what prior error-tracking scouts found and
   ruled out.
 - `signals-scout-project-profile-get` — the `$exception` row in `top_events` carries
@@ -116,19 +116,21 @@ scout earns its keep.
 
 ### Save memory as you go
 
-Memory is a continuous activity. Write an entry whenever you observe something a future
-error-tracking run should know:
+Memory is a continuous activity. Write a scratchpad entry whenever you observe something
+a future error-tracking run should know. Encode the "category" in the key prefix —
+`pattern:`, `noise:`, `addressed:`, `dedupe:` — so future runs find it with a single
+`text=` search:
 
-- _"Project's normal `$exception` baseline: ~50/day across ~30 distinct users. Anything
-  materially above that is fresh."_ (`pattern`, `domain:error_tracking`)
-- _"Issue 019de34e — surfaced 2026-05-01 11:31–13:22Z, then quiet. If quiet next run,
-  treat as already-surfaced; if firing, escalate."_ (`dedupe`, `entity:019de34e`)
-- _"Sandbox `TimeoutExpired` Docker errors are recurring noise on this team — internal
-  harness ops, not user-facing."_ (`noise`, `domain:error_tracking`)
-- _"Server activity `fetch_signals_for_report_activity` was a regression source on
-  2026-05-01 — if it appears in a fresh stack trace, double-check it's not the same
-  root cause."_ (`pattern`, `domain:error_tracking`,
-  `entity:fetch_signals_for_report_activity`)
+- key `pattern:error_tracking:baseline` — _"Project's normal `$exception` baseline:
+  ~50/day across ~30 distinct users. Anything materially above that is fresh."_
+- key `dedupe:error_tracking:019de34e` — _"Issue 019de34e — surfaced 2026-05-01
+  11:31–13:22Z, then quiet. If quiet next run, treat as already-surfaced; if firing,
+  escalate."_
+- key `noise:error_tracking:sandbox-timeoutexpired` — _"Sandbox `TimeoutExpired` Docker
+  errors are recurring noise on this team — internal harness ops, not user-facing."_
+- key `pattern:error_tracking:fetch_signals_for_report_activity` — _"Server activity
+  `fetch_signals_for_report_activity` was a regression source on 2026-05-01 — if it
+  appears in a fresh stack trace, double-check it's not the same root cause."_
 
 By run #5 you'll have a local map of what's normal versus what warrants investigation,
 and burn less time on cold-start exploration.
@@ -137,12 +139,12 @@ and burn less time on cold-start exploration.
 
 For each candidate finding:
 
-- **Emit** via `signals-scout-runs-findings-create` if it clears the confidence bar.
+- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
   Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete issue ids,
   hourly count, distinct-user counts in the evidence.
 - **Remember** if below the bar but worth carrying forward.
-- **Skip** with a one-line note if a memory entry tagged `noise` or `addressed` already
-  covers it.
+- **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
+  key prefix already covers it.
 
 Cross-check `inbox-reports-list` before emitting — if an issue is already in the inbox,
 emit only if the _new angle_ (broader reach, status regression, deploy correlation) is
@@ -151,11 +153,10 @@ cross-source clustering.
 
 ### Close out
 
-1. **Write run-metadata memory** — one entry tagged `run_metadata`,
-   `domain:error_tracking`, `ttl_days=7`. Body: one sentence on what you looked at and
-   the headline outcome.
-2. **Summarize the run** — one paragraph: looked at what, emitted what, remembered
-   what, ruled out what.
+**Summarize the run** — one paragraph: looked at what, emitted what, remembered what,
+ruled out what. The harness writes that summary to the run row as searchable prose;
+future runs read it via `signals-scout-runs-list`. Do **not** write a separate
+"run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -185,14 +186,15 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-list` /
+- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-runs-findings-create` / `signals-scout-scratchpad-create` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 ## When to stop
 
 - `$exception` row in profile is at baseline → close out empty.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` → skip.
+- A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key
+  prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if
   there's more you could look at. Fewer, better signals.
 
