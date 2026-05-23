@@ -46166,7 +46166,7 @@ export namespace Schemas {
     text?: string;
     };
 
-    export type SignalsScoutScratchpadListParams = {
+    export type SignalsScoutScratchpadSearchParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

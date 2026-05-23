@@ -22,26 +22,26 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
  * Fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.
  * @summary Emit a finding for a run
  */
-export const signalsScoutRunsFindingsCreateBodyWeightMin = 0
-export const signalsScoutRunsFindingsCreateBodyWeightMax = 1
+export const signalsScoutEmitSignalBodyWeightMin = 0
+export const signalsScoutEmitSignalBodyWeightMax = 1
 
-export const signalsScoutRunsFindingsCreateBodyConfidenceMin = 0
-export const signalsScoutRunsFindingsCreateBodyConfidenceMax = 1
+export const signalsScoutEmitSignalBodyConfidenceMin = 0
+export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
-export const signalsScoutRunsFindingsCreateBodyEvidenceMax = 20
+export const signalsScoutEmitSignalBodyEvidenceMax = 20
 
-export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
-            .min(signalsScoutRunsFindingsCreateBodyWeightMin)
-            .max(signalsScoutRunsFindingsCreateBodyWeightMax)
+            .min(signalsScoutEmitSignalBodyWeightMin)
+            .max(signalsScoutEmitSignalBodyWeightMax)
             .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
-            .min(signalsScoutRunsFindingsCreateBodyConfidenceMin)
-            .max(signalsScoutRunsFindingsCreateBodyConfidenceMax)
+            .min(signalsScoutEmitSignalBodyConfidenceMin)
+            .max(signalsScoutEmitSignalBodyConfidenceMax)
             .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
         evidence: zod
             .array(
@@ -62,7 +62,7 @@ export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.')
             )
-            .max(signalsScoutRunsFindingsCreateBodyEvidenceMax)
+            .max(signalsScoutEmitSignalBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
         severity: zod
@@ -100,15 +100,15 @@ export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Write or refresh an agent memory
+ * @summary Remember a scratchpad entry
  */
-export const signalsScoutScratchpadCreateBodyKeyMax = 300
+export const signalsScoutScratchpadRememberBodyKeyMax = 300
 
-export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
-            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
         content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
@@ -122,13 +122,13 @@ export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Delete an agent memory by key
+ * @summary Forget a scratchpad entry by key
  */
-export const signalsScoutScratchpadDeleteBodyKeyMax = 300
+export const signalsScoutScratchpadForgetBodyKeyMax = 300
 
-export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadForgetBody = /* @__PURE__ */ zod
     .object({
-        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
+        key: zod.string().max(signalsScoutScratchpadForgetBodyKeyMax).describe('Memory key to delete.'),
     })
     .describe('Request body for `forget`.')
 
