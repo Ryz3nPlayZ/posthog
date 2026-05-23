@@ -6,8 +6,13 @@ from django.http import HttpRequest
 import requests
 import structlog
 
-from posthog.api.github_callback import personal_state, router, state
-from posthog.api.github_callback.types import FinishResult, FlowKind, is_valid_github_installation_id
+from posthog.api.github_callback import personal_state, state
+from posthog.api.github_callback.types import (
+    FinishResult,
+    FlowKind,
+    github_oauth_redirect_uri,
+    is_valid_github_installation_id,
+)
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -27,16 +32,6 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     def _error(reason: str) -> FinishResult:
         logger.warning("github_link: redirecting with error", reason=reason, user_id=user.id)
         return FinishResult(redirect_kind="personal_finish", connect_from=connect_from_value, error=reason)
-
-    if github_error := request.GET.get("error"):
-        logger.warning(
-            "github_link: GitHub returned error on callback",
-            error=github_error,
-            description=request.GET.get("error_description"),
-            user_id=user.id,
-        )
-        connect_from_value = personal_state.app_connect_from_from_state_query(request)
-        return _error(github_error if github_error == "access_denied" else "github_oauth_error")
 
     code = request.GET.get("code")
     state_raw = request.GET.get("state")
@@ -84,8 +79,10 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             return _error("missing_params")
         installation_ids = [installation_id]
 
-    use_oauth_redirect = oauth_flow or oauth_discover_flow or team_oauth_flow
-    authorization = router.exchange_user_authorization(code, use_oauth_redirect_uri=use_oauth_redirect)
+    if oauth_flow or oauth_discover_flow or team_oauth_flow:
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
+    else:
+        authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
         return _error("exchange_failed")
 

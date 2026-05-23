@@ -8,9 +8,8 @@ from django.views.decorators.http import require_http_methods
 
 from posthog.api.github_callback import finish, redirects, state
 from posthog.api.github_callback.personal_state import is_personal_github_setup_state
-from posthog.api.github_callback.types import CallbackContext, FlowKind, github_oauth_redirect_uri
+from posthog.api.github_callback.types import CallbackContext, FlowKind
 from posthog.models import User
-from posthog.models.integration import GitHubIntegration, GitHubUserAuthorization
 
 
 def require_session_or_login_redirect(
@@ -27,12 +26,6 @@ def require_session_or_401(request: HttpRequest) -> HttpResponse | None:
     if request.user.is_authenticated:
         return None
     return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
-
-
-def exchange_user_authorization(code: str, *, use_oauth_redirect_uri: bool) -> GitHubUserAuthorization | None:
-    if use_oauth_redirect_uri:
-        return GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
-    return GitHubIntegration.github_user_from_code(code)
 
 
 def _parse_callback(request: HttpRequest, entry: Literal["setup_url", "oauth_redirect"]) -> CallbackContext:
