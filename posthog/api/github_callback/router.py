@@ -81,8 +81,8 @@ def _parse_callback(request: HttpRequest, entry: Literal["setup_url", "oauth_red
 def handle_setup_url(request: HttpRequest) -> HttpResponseRedirect:
     """GitHub App Setup URL — team finish or personal install (same router)."""
     resume_path = request.get_full_path()
-    if redirect := require_session_or_login_redirect(request, resume_path=resume_path):
-        return redirect
+    if login_redirect := require_session_or_login_redirect(request, resume_path=resume_path):
+        return login_redirect
 
     ctx = _parse_callback(request, "setup_url")
     result = finish.finish(request, ctx)

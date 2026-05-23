@@ -1,5 +1,6 @@
 from typing import cast
 
+from django.core.cache import cache
 from django.http import HttpRequest
 
 import requests
@@ -196,5 +197,11 @@ def finish_personal_setup_update(request: HttpRequest) -> FinishResult:
         return _error(exc.code)
 
     refresh_user_github_installation_access(integration, installation_access)
+
+    # Burn the pending authorize state so a repeated GitHub setup-URL ping within
+    # the 5-minute TTL doesn't re-run the refresh.
+    pending_token = cache.get(state.unified_authorize_pending_cache_key(user.id))
+    if pending_token:
+        state.consume_authorize_state(str(pending_token), user_id=user.id)
 
     return FinishResult(redirect_kind="personal_finish", connect_from=None)
