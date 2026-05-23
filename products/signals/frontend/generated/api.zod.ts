@@ -100,15 +100,15 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Write or refresh an agent memory
+ * @summary Remember a scratchpad entry
  */
-export const signalsScoutScratchpadCreateBodyKeyMax = 300
+export const signalsScoutScratchpadRememberBodyKeyMax = 300
 
-export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
-            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
         content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
@@ -122,13 +122,13 @@ export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Delete an agent memory by key
+ * @summary Forget a scratchpad entry by key
  */
-export const signalsScoutScratchpadDeleteBodyKeyMax = 300
+export const signalsScoutScratchpadForgetBodyKeyMax = 300
 
-export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadForgetBody = /* @__PURE__ */ zod
     .object({
-        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
+        key: zod.string().max(signalsScoutScratchpadForgetBodyKeyMax).describe('Memory key to delete.'),
     })
     .describe('Request body for `forget`.')
 

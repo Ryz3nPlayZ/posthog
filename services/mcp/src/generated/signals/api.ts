@@ -79,7 +79,7 @@ export const SignalsScoutProjectProfileGetQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. Results are capped at 100; pass `since` to scope to a recent window.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -93,16 +93,27 @@ export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
 export const signalsScoutRunsListQueryLimitMax = 100
 
 export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).'
+        ),
     limit: zod
         .number()
         .min(1)
         .max(signalsScoutRunsListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
-    since: zod.iso
-        .datetime({ offset: true })
+    text: zod
+        .string()
+        .min(1)
         .optional()
-        .describe('ISO-8601 lower bound on `created_at`. Use to scope to a recent window.'),
+        .describe("Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter."),
 })
 
 /**
@@ -174,7 +185,17 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .max(signalsScoutEmitSignalBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
-        severity: zod.string().nullish().describe('Optional severity tag (`P0`-`P4`) — informational only.'),
+        severity: zod
+            .union([
+                zod
+                    .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                    .describe('* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4'
+            ),
         dedupe_keys: zod
             .array(zod.string())
             .optional()
@@ -199,9 +220,9 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
 
 /**
  * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
- * @summary Search durable memories
+ * @summary Search the scout scratchpad
  */
-export const SignalsScoutScratchpadListParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -209,13 +230,13 @@ export const SignalsScoutScratchpadListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsScoutScratchpadListQueryLimitMax = 100
+export const signalsScoutScratchpadSearchQueryLimitMax = 100
 
-export const SignalsScoutScratchpadListQueryParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
         .min(1)
-        .max(signalsScoutScratchpadListQueryLimitMax)
+        .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
     text: zod
@@ -226,9 +247,9 @@ export const SignalsScoutScratchpadListQueryParams = /* @__PURE__ */ zod.object(
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Write or refresh an agent memory
+ * @summary Remember a scratchpad entry
  */
-export const SignalsScoutScratchpadCreateParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutScratchpadRememberParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -236,13 +257,13 @@ export const SignalsScoutScratchpadCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsScoutScratchpadCreateBodyKeyMax = 300
+export const signalsScoutScratchpadRememberBodyKeyMax = 300
 
-export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
-            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
         content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
@@ -256,9 +277,9 @@ export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Delete an agent memory by key
+ * @summary Forget a scratchpad entry by key
  */
-export const SignalsScoutScratchpadDeleteParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutScratchpadForgetParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -266,11 +287,11 @@ export const SignalsScoutScratchpadDeleteParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsScoutScratchpadDeleteBodyKeyMax = 300
+export const signalsScoutScratchpadForgetBodyKeyMax = 300
 
-export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadForgetBody = /* @__PURE__ */ zod
     .object({
-        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
+        key: zod.string().max(signalsScoutScratchpadForgetBodyKeyMax).describe('Memory key to delete.'),
     })
     .describe('Request body for `forget`.')
 

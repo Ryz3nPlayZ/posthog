@@ -4612,22 +4612,7 @@
             "readOnlyHint": true
         }
     },
-    "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Get the project profile",
-        "title": "Get the project profile",
-        "required_scopes": ["signal_scout:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "signals-scout-runs-findings-create": {
+    "signals-scout-emit-signal": {
         "description": "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag.",
         "category": "Signals",
         "feature": "signals",
@@ -4640,6 +4625,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "signals-scout-project-profile-get": {
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get the project profile",
+        "title": "Get the project profile",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "signals-scout-runs-list": {
@@ -4672,27 +4672,12 @@
             "readOnlyHint": true
         }
     },
-    "signals-scout-scratchpad-create": {
-        "description": "Upsert a `scout_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.",
+    "signals-scout-scratchpad-forget": {
+        "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Write or refresh a scout memory",
-        "title": "Write or refresh a scout memory",
-        "required_scopes": ["signal_scout_internal:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "signals-scout-scratchpad-delete": {
-        "description": "Delete a `scout_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is idempotent. Cannot delete `human_confirmed` entries.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Forget a scout memory by key",
-        "title": "Forget a scout memory by key",
+        "summary": "Forget a scratchpad entry by key",
+        "title": "Forget a scratchpad entry by key",
         "required_scopes": ["signal_scout_internal:write"],
         "new_mcp": true,
         "annotations": {
@@ -4702,12 +4687,27 @@
             "readOnlyHint": false
         }
     },
-    "signals-scout-scratchpad-list": {
-        "description": "Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `scout_inference` entries are hidden by default.",
+    "signals-scout-scratchpad-remember": {
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Search durable scout memories",
-        "title": "Search durable scout memories",
+        "summary": "Remember a scratchpad entry",
+        "title": "Remember a scratchpad entry",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-search": {
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Results capped at 100.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search the scout scratchpad",
+        "title": "Search the scout scratchpad",
         "required_scopes": ["signal_scout:read"],
         "new_mcp": true,
         "annotations": {

@@ -4512,24 +4512,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `P0` - P0
-    * `P1` - P1
-    * `P2` - P2
-    * `P3` - P3
-    * `P4` - P4
-     */
-    export type AutostartPriorityEnum = typeof AutostartPriorityEnum[keyof typeof AutostartPriorityEnum];
-
-
-    export const AutostartPriorityEnum = {
-      P0: 'P0',
-      P1: 'P1',
-      P2: 'P2',
-      P3: 'P3',
-      P4: 'P4',
-    } as const;
-
-    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -13454,6 +13436,24 @@ export namespace Schemas {
       entity_id?: string | null;
     }
 
+    /**
+     * * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4
+     */
+    export type SignalsScoutSeverityEnum = typeof SignalsScoutSeverityEnum[keyof typeof SignalsScoutSeverityEnum];
+
+
+    export const SignalsScoutSeverityEnum = {
+      P0: 'P0',
+      P1: 'P1',
+      P2: 'P2',
+      P3: 'P3',
+      P4: 'P4',
+    } as const;
+
     export interface TimeRange {
       /** ISO-8601 inclusive lower bound for the finding's window. */
       date_from: string;
@@ -13489,11 +13489,14 @@ export namespace Schemas {
          * @nullable
          */
       hypothesis?: string | null;
-      /**
-         * Optional severity tag (`P0`-`P4`) — informational only.
-         * @nullable
-         */
-      severity?: string | null;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity?: SignalsScoutSeverityEnum | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
       /** Optional time window the finding refers to. */
@@ -35705,8 +35708,8 @@ export namespace Schemas {
 
     /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-    post-refactor — the bridge row no longer holds structured payloads. Future
-    extensions (linked Signal rows, LLMA token-cost join) land here.
+    today; kept distinct so future detail-only extensions (linked Signal rows,
+    LLMA token-cost join) can land here without bloating the list response.
      */
     export interface SignalScoutRunDetail {
       /** UUID of the bridge row. */
@@ -35739,6 +35742,8 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     /**
@@ -35777,6 +35782,8 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     export interface _User {
@@ -35790,7 +35797,7 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutostartPriorityEnum | BlankEnum | null;
+      autostart_priority?: SignalsScoutSeverityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -46381,18 +46388,27 @@ export namespace Schemas {
 
     export type SignalsScoutRunsListParams = {
     /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string;
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
-     * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
      */
-    since?: string;
+    text?: string;
     };
 
-    export type SignalsScoutScratchpadListParams = {
+    export type SignalsScoutScratchpadSearchParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

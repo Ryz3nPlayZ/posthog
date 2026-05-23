@@ -379,12 +379,14 @@ export interface SignalScoutRunSummaryApi {
      * @nullable
      */
     task_url?: string | null
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    summary: string
 }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-post-refactor — the bridge row no longer holds structured payloads. Future
-extensions (linked Signal rows, LLMA token-cost join) land here.
+today; kept distinct so future detail-only extensions (linked Signal rows,
+LLMA token-cost join) can land here without bloating the list response.
  */
 export interface SignalScoutRunDetailApi {
     /** UUID of the bridge row. */
@@ -417,6 +419,8 @@ export interface SignalScoutRunDetailApi {
      * @nullable
      */
     task_url?: string | null
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    summary: string
 }
 
 /**
@@ -433,6 +437,23 @@ export interface EvidenceEntryApi {
      */
     entity_id?: string | null
 }
+
+/**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type SignalsScoutSeverityEnumApi = (typeof SignalsScoutSeverityEnumApi)[keyof typeof SignalsScoutSeverityEnumApi]
+
+export const SignalsScoutSeverityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
 
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
@@ -469,11 +490,14 @@ export interface EmitFindingRequestApi {
      * @nullable
      */
     hypothesis?: string | null
-    /**
-     * Optional severity tag (`P0`-`P4`) — informational only.
-     * @nullable
-     */
-    severity?: string | null
+    /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    severity?: SignalsScoutSeverityEnumApi | null
     /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
     dedupe_keys?: string[]
     /** Optional time window the finding refers to. */
@@ -651,23 +675,6 @@ export interface _UserApi {
     readonly email: string
 }
 
-/**
- * * `P0` - P0
- * `P1` - P1
- * `P2` - P2
- * `P3` - P3
- * `P4` - P4
- */
-export type AutostartPriorityEnumApi = (typeof AutostartPriorityEnumApi)[keyof typeof AutostartPriorityEnumApi]
-
-export const AutostartPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
-
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
 export const BlankEnumApi = {
@@ -677,7 +684,7 @@ export const BlankEnumApi = {
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | null
+    autostart_priority?: SignalsScoutSeverityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -733,18 +740,27 @@ export type SignalsScoutProjectProfileGetParams = {
 
 export type SignalsScoutRunsListParams = {
     /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number
     /**
-     * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
      */
-    since?: string
+    text?: string
 }
 
-export type SignalsScoutScratchpadListParams = {
+export type SignalsScoutScratchpadSearchParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
