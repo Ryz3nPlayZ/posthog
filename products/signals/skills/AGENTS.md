@@ -25,11 +25,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 
 ### Generalist + specialists
 
-- `signals-scout-general/` — cross-product generalist. Reads everything via 12 product
-  lenses + four mid-skill references (calibration, dedupe, finding-schema,
-  investigation-patterns). This is the entry point if you want to understand how a
-  scout decides what to investigate end-to-end. Specialists follow the same shape
-  with tighter focus.
+- `signals-scout-general/` — cross-product generalist. Looks for cross-product
+  correlations and surfaces no specialist covers, rather than deep-diving a single
+  product. Carries two progressively-disclosed references: `references/emit.md` (the
+  emit contract) and `references/conventions.md` (scratchpad key prefixes + the
+  four-states dedupe classifier + cross-project noise patterns). This is the entry
+  point if you want to understand how a scout decides what to investigate end-to-end.
 - `signals-scout-llm-analytics/` — anomaly watcher for LLM analytics
   (cost / latency / error / token-share regressions).
 - `signals-scout-logs/` — anomaly watcher for logs (rate / level / pattern shifts).
@@ -40,6 +41,9 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-observability-gaps/` — the odd one out. Watches for _structural
   gaps_ between events being captured and existing insight / dashboard / alert
   coverage, and emits P3 _recommendations_ rather than P0–P2 _anomalies_.
+- `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
+  violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
+  post-deploy page-scoped regressions, suspicious third-party domains).
 
 ### How the coordinator picks one
 
@@ -75,17 +79,23 @@ domain-tight.
 
 Each scout's body is an instruction set the harness loads verbatim into the system
 prompt. References (siblings of `SKILL.md`) are progressively disclosed via
-`Skill.read_file()` from inside the run. The fleet shares four conventions worth
-knowing if you author a new scout:
+`Skill.read_file()` from inside the run. Keep the body lean — every line is a
+recurring token cost on every run — and push detail into references that are only
+read when needed.
 
-- **Calibration** — what counts as a real anomaly vs. noise for the scout's domain.
-- **Dedupe rules** — how to check past runs and memory before emitting a finding.
-- **Finding schema** — the structured payload shape the scout passes to
-  `emit_signal_*`.
-- **Investigation patterns** — repeated query shapes the scout will reuse.
+The generalist (`signals-scout-general`) carries two references the rest of the
+fleet also reasons in terms of:
 
-The generalist carries all four as references; specialists either include their own
-versions or link back to the generalist's.
+- **`references/emit.md`** — the emit contract: required/recommended fields, the
+  weight vs. confidence rubrics, severity mapping, dedupe keys, `finding_id`
+  idempotency, and a worked example.
+- **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
+  key-prefix vocabulary, and cross-project noise patterns.
+
+The 7 specialists are each currently a single self-contained `SKILL.md` carrying
+their own domain discriminator + investigation patterns. A simplification pass to
+compress them and share the generalist's references is planned; until then, treat
+the generalist as the reference shape.
 
 ## When editing skills in this directory
 
