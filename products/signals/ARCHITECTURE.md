@@ -778,23 +778,23 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
 #### Signals Agent endpoints (`backend/scout_harness/views.py`)
 
-The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `signals-scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (memory create / delete, run findings create) require the matching MCP scope.
+The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `signals-scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
 
-- **`SignalScoutRunViewSet`** — list / retrieve scout run rows; nested action `runs/{id}/findings/` for the harness to push findings during a run.
-- **`SignalScratchpadViewSet`** — list / create / delete `SignalScratchpad` rows for the team. The `signals-scout-scratchpad-list` tool is the agent's primary "what do I already know" read at prompt-assembly time.
+- **`SignalScoutRunViewSet`** — list / retrieve scout run rows; nested action `runs/{id}/emit-signal/` for the harness to push findings during a run.
+- **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `signals-scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
 - **`SignalProjectProfileViewSet`** — `GET .../current/` returns the freshest non-expired `SignalProjectProfile` row for the team (recomputes if the cache is stale).
 
 Generated MCP tool names:
 
-| Tool                                 | Purpose                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| `signals-scout-runs-list`            | List scout runs (filterable by skill / status / time)                          |
-| `signals-scout-runs-retrieve`        | Fetch a single run row including the full findings payload                     |
-| `signals-scout-runs-findings-create` | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
-| `signals-scout-scratchpad-list`      | List durable memory entries for the team                                       |
-| `signals-scout-scratchpad-create`    | Create or update a memory entry                                                |
-| `signals-scout-scratchpad-delete`    | Remove a memory entry                                                          |
-| `signals-scout-project-profile-get`  | Read the current `SignalProjectProfile` snapshot                               |
+| Tool                                | Purpose                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| `signals-scout-runs-list`           | List scout runs (filterable by skill / status / time)                          |
+| `signals-scout-runs-retrieve`       | Fetch a single run row including the full findings payload                     |
+| `signals-scout-emit-signal`         | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
+| `signals-scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
+| `signals-scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
+| `signals-scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
+| `signals-scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
 
 ### Serializers (`backend/serializers.py`)
 

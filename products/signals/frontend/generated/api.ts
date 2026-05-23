@@ -31,7 +31,7 @@ import type {
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
-    SignalsScoutScratchpadListParams,
+    SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -212,7 +212,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. Results are capped at 100; pass `since` to scope to a recent window.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
@@ -267,7 +267,7 @@ export const signalsScoutEmitSignal = async (
     })
 }
 
-export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: SignalsScoutScratchpadListParams) => {
+export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -285,33 +285,33 @@ export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: Sig
 
 /**
  * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
- * @summary Search durable memories
+ * @summary Search the scout scratchpad
  */
-export const signalsScoutScratchpadList = async (
+export const signalsScoutScratchpadSearch = async (
     projectId: string,
-    params?: SignalsScoutScratchpadListParams,
+    params?: SignalsScoutScratchpadSearchParams,
     options?: RequestInit
 ): Promise<ScratchpadEntryApi[]> => {
-    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadListUrl(projectId, params), {
+    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsScoutScratchpadCreateUrl = (projectId: string) => {
+export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/scratchpad/`
 }
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Write or refresh an agent memory
+ * @summary Remember a scratchpad entry
  */
-export const signalsScoutScratchpadCreate = async (
+export const signalsScoutScratchpadRemember = async (
     projectId: string,
     rememberRequestApi: RememberRequestApi,
     options?: RequestInit
 ): Promise<ScratchpadEntryApi> => {
-    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadCreateUrl(projectId), {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadRememberUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -319,20 +319,20 @@ export const signalsScoutScratchpadCreate = async (
     })
 }
 
-export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/scratchpad/delete/`
+export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
 }
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Delete an agent memory by key
+ * @summary Forget a scratchpad entry by key
  */
-export const signalsScoutScratchpadDelete = async (
+export const signalsScoutScratchpadForget = async (
     projectId: string,
     forgetRequestApi: ForgetRequestApi,
     options?: RequestInit
 ): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadForgetUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

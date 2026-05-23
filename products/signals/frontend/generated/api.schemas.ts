@@ -699,8 +699,8 @@ export interface SignalScoutRunSummaryApi {
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-post-refactor — the bridge row no longer holds structured payloads. Future
-extensions (linked Signal rows, LLMA token-cost join) land here.
+today; kept distinct so future detail-only extensions (linked Signal rows,
+LLMA token-cost join) can land here without bloating the list response.
  */
 export interface SignalScoutRunDetailApi {
     /** UUID of the bridge row. */
@@ -1087,12 +1087,13 @@ export type SignalsScoutRunsListParams = {
      */
     limit?: number
     /**
-     * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
      */
-    since?: string
+    text?: string
 }
 
-export type SignalsScoutScratchpadListParams = {
+export type SignalsScoutScratchpadSearchParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
