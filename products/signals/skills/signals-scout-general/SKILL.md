@@ -9,10 +9,10 @@ description: >
   cover. The coordinator samples one scout per (team, tick) at random, so general
   fires intermixed with specialists over time.
 compatibility: >
-  Designed for the PostHog Signals scout in a Claude sandbox with read-only PostHog
-  MCP scopes plus the signals-scout MCP family: project-profile-get, runs-list,
-  runs-retrieve, scratchpad-list, scratchpad-create, scratchpad-delete,
-  runs-findings-create.
+  Runs as the PostHog Signals scout in a Claude sandbox with read-only PostHog MCP
+  scopes (signal_scout:read, llm_skill:read, plus standard analytics reads). Uses the
+  signals-scout MCP family: project-profile-get, runs-list, runs-retrieve,
+  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal.
 metadata:
   owner_team: signals
 ---
