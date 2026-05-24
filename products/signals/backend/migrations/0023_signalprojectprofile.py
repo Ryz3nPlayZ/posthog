@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1133_alter_integration_kind"),
-        ("signals", "0021_add_signal_scout_models"),
+        ("signals", "0022_add_signal_scout_models"),
     ]
 
     operations = [
