@@ -13,11 +13,12 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isString } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, Experiment, FeatureFlagType, NotebookType, QueryBasedInsightModel } from '~/types'
+import { DashboardType, Experiment, FeatureFlagType, QueryBasedInsightModel } from '~/types'
 
 import type { posthogResourcesTaxonomicGroupsLogicType } from './posthogResourcesTaxonomicGroupsLogicType'
 
@@ -71,24 +72,12 @@ export const posthogResourcesTaxonomicGroupsLogic = kea<posthogResourcesTaxonomi
                             items: TaxonomicDefinitionTypes[],
                             query: string
                         ): TaxonomicDefinitionTypes[] => {
-                            // Note: This function doesn't have direct access to the current value
-                            // The actual filtering logic needs to be implemented in the infinite list logic
-                            // For now, just handle search filtering
                             if (!query) {
                                 return items
                             }
-
-                            return items.filter((item: TaxonomicDefinitionTypes) => {
-                                // Type guard for FeatureFlagType
-                                if ('key' in item && 'name' in item) {
-                                    const flag = item as unknown as FeatureFlagType
-                                    return (flag.key || flag.name || '').toLowerCase().includes(query.toLowerCase())
-                                }
-                                // For other types, check if they have a name property
-                                if ('name' in item) {
-                                    return (item.name || '').toLowerCase().includes(query.toLowerCase())
-                                }
-                                return true
+                            return items.filter((item) => {
+                                const flag = item as unknown as FeatureFlagType
+                                return (flag.key || flag.name || '').toLowerCase().includes(query.toLowerCase())
                             })
                         },
                         excludedProperties:
