@@ -26,7 +26,6 @@ from posthog.api.github_callback.types import (
 )
 from posthog.auth import SessionAuthentication
 from posthog.models import Team
-from posthog.models.organization import Organization
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
@@ -34,6 +33,7 @@ from posthog.models.integration import (
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
 from posthog.user_permissions import user_is_team_admin
