@@ -180,8 +180,8 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         # emit-signal requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 
-    def _findings_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/findings/"
+    def _emit_signal_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-signal/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -256,8 +256,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
-    def _delete_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/"
+    def _forget_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/"
 
     def test_remember_creates_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked"}

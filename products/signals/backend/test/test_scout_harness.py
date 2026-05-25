@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -320,13 +320,18 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
     the whole point of `runs_per_tick > 1`. The skip-if-running guard locks on
     `(team, skill_name)` rather than `(team, config_id)` so this works."""
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    # A different skill for the same team is RUNNING — should NOT block.
+    # A different skill for the same team is in flight — should NOT block. Run status lives
+    # on the linked TaskRun now, so stand up a real IN_PROGRESS TaskRun + bridge row.
+    other_task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=other_task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS
+    )
     await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=other_task_run,
         team=ateam,
         scout_config=config,
         skill_name="signals-scout-other",
         skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
     )
 
     spawn_calls: list[dict] = []
@@ -346,54 +351,12 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_concurrent_insert_race_translates_to_skip(ateam, aerrors_skill):
-    """When the runner's `_has_running_run` check sees a clear sky but another child
-    inserts a RUNNING row for the same (team, skill) before we do, the partial unique
-    index `signal_scout_run_one_running_per_team_skill` rejects our INSERT with
-    `IntegrityError`. The runner must translate that into a clean skip — not bubble
-    a workflow failure."""
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-
-    # Stand-in for "another child inserted between our check and our insert": the
-    # racing row is created inside the `_create_run_row` patch, so the check above
-    # (which we let pass naturally) sees an empty table, and the patched insert
-    # raises IntegrityError to mimic the partial-unique rejection.
-    from django.db import IntegrityError
-
-    def _racing_insert(**_kwargs):
-        # Insert the racing row that "won" the race, then raise on our own insert.
-        SignalScoutRun.objects.create(
-            team=ateam,
-            scout_config=config,
-            skill_name="signals-scout-errors",
-            skill_version=1,
-            status=SignalScoutRun.Status.RUNNING,
-        )
-        raise IntegrityError("duplicate key value violates unique constraint")
-
-    async def fake_spawn(**_kwargs):
-        raise AssertionError("spawn should not run after losing the insert race")
-
-    with (
-        patch("products.signals.backend.scout_harness.runner._create_run_row", side_effect=_racing_insert),
-        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
-    ):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert result.run_id is None
-    assert result.status is None
-    assert result.skip_reason == "concurrent run for this team+skill already RUNNING"
-    # Exactly one row exists — the racing winner — not two.
-    count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
-    assert count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_cancelled_run_persists_failure_and_re_raises(ateam, aerrors_skill):
-    """asyncio.CancelledError is BaseException, not Exception — the cleanup branch must
-    still mark the row FAILED before re-raising so Temporal sees the activity as failed
-    and the row doesn't go stale.
+async def test_cancelled_run_re_raises(ateam, aerrors_skill):
+    """asyncio.CancelledError is BaseException, not Exception — the runner must let it
+    propagate so Temporal marks the activity failed, rather than swallowing it. Run status
+    now lives on the linked TaskRun (managed by MultiTurnSession); the bridge row is created
+    inside `_spawn_and_run`, so a cancellation that escapes before the session starts leaves
+    no orphaned bridge row.
     """
 
     async def fake_spawn(**_kwargs):
@@ -403,174 +366,9 @@ async def test_cancelled_run_persists_failure_and_re_raises(ateam, aerrors_skill
         with pytest.raises(asyncio.CancelledError):
             await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # Exactly one row, marked failed with the cancellation reason recorded.
-    runs = await database_sync_to_async(list)(SignalScoutRun.objects.filter(team=ateam))
-    assert len(runs) == 1
-    assert runs[0].status == SignalScoutRun.Status.FAILED
-    assert runs[0].completed_at is not None
-    assert runs[0].metadata.get("error_type") == "CancelledError"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_unblocks_stale_running_row(ateam, aerrors_skill):
-    """A RUNNING row whose age exceeds 2x `WORKFLOW_HARD_CEILING_S` must be auto-healed
-    before the skip-if-running guard fires, so a fresh run can spawn instead of being
-    blocked indefinitely by an orphaned row from a worker shutdown / sandbox crash.
-
-    The threshold is anchored to the workflow's hard ceiling (the Temporal
-    `start_to_close_timeout` the activity is actually subject to), not the per-run
-    `metadata.limits.max_runtime_s` — see `_self_heal_stale_runs` and the dedicated
-    test below for why.
-    """
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    stale = await database_sync_to_async(SignalScoutRun.objects.create)(
-        team=ateam,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 1800}},
-    )
-    # Age the row past 2x WORKFLOW_HARD_CEILING_S (= 2 * 1860s = 3720s).
-    await database_sync_to_async(SignalScoutRun.objects.filter(id=stale.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=4000),
-    )
-
-    async def fake_spawn(**_kwargs):
-        return "fresh run completed"
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    # Fresh run was allowed to proceed.
-    assert result.status == SignalScoutRun.Status.COMPLETED
-    assert result.run_id is not None and result.run_id != str(stale.id)
-    # Stale row was healed in place.
-    healed = await database_sync_to_async(SignalScoutRun.objects.get)(id=stale.id)
-    assert healed.status == SignalScoutRun.Status.FAILED
-    assert healed.completed_at is not None
-    assert "auto-healed" in healed.summary.lower()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_leaves_recent_running_row_alone(ateam, aerrors_skill):
-    """A RUNNING row within its budget window is a legitimate concurrent run — the
-    self-heal must NOT touch it, and the skip-if-running guard must still fire.
-    """
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    recent = await database_sync_to_async(SignalScoutRun.objects.create)(
-        team=ateam,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 1800}},
-    )
-    # Within the 2x threshold (3600s).
-    await database_sync_to_async(SignalScoutRun.objects.filter(id=recent.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=120),
-    )
-
-    async def fake_spawn(**_kwargs):
-        raise AssertionError("spawn should not run while a recent prior run is RUNNING")
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert result.run_id is None
-    assert result.skip_reason and "RUNNING" in result.skip_reason
-    untouched = await database_sync_to_async(SignalScoutRun.objects.get)(id=recent.id)
-    assert untouched.status == SignalScoutRun.Status.RUNNING
-    assert untouched.completed_at is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_threshold_is_workflow_ceiling_not_team_runtime_override(ateam, aerrors_skill):
-    """A team with a generous `max_runtime_s` override must not get hours of false-blocking
-    from an orphaned row. The workflow's `start_to_close_timeout` is fixed at
-    `WORKFLOW_HARD_CEILING_S` regardless of the override, so the self-heal threshold is
-    anchored to that ceiling — orphans get reaped at 2x the workflow ceiling, not 2x the
-    inflated budget recorded on the row.
-    """
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    # Team-recorded budget of 7200s (well above the workflow ceiling of 1860s). Pre-fix,
-    # this would push the staleness threshold to 14400s; post-fix, it stays at 3720s.
-    stale = await database_sync_to_async(SignalScoutRun.objects.create)(
-        team=ateam,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 7200}},
-    )
-    # Age past 2x WORKFLOW_HARD_CEILING_S (3720s) but well below 2x the team's recorded
-    # 7200s budget (14400s). Old logic would skip the heal; new logic must reap.
-    await database_sync_to_async(SignalScoutRun.objects.filter(id=stale.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=4000),
-    )
-
-    async def fake_spawn(**_kwargs):
-        return "fresh run completed"
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    # Stale row was healed despite the inflated team budget.
-    healed = await database_sync_to_async(SignalScoutRun.objects.get)(id=stale.id)
-    assert healed.status == SignalScoutRun.Status.FAILED
-    assert "WORKFLOW_HARD_CEILING_S" in healed.summary
-    # And a fresh run was allowed to spawn.
-    assert result.status == SignalScoutRun.Status.COMPLETED
-    assert result.run_id is not None and result.run_id != str(stale.id)
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_keys_on_team_skill_not_config(ateam, aerrors_skill):
-    """Regression: the self-heal must reach orphaned RUNNING rows whose `scout_config_id` no
-    longer matches the current config — e.g. after a config delete + recreate, since the FK
-    is `SET_NULL`. The partial unique index is `(team, skill_name) WHERE status='running'`,
-    so keying the self-heal on `scout_config_id` would leave the orphaned row un-healable
-    while the constraint kept blocking every subsequent insert for the same (team, skill).
-    """
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    orphaned = await database_sync_to_async(SignalScoutRun.objects.create)(
-        team=ateam,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 1800}},
-    )
-    await database_sync_to_async(SignalScoutRun.objects.filter(id=orphaned.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=4000),
-    )
-    # Delete the config — FK is SET_NULL, so the orphaned row's `scout_config_id` flips to
-    # NULL while the row itself survives.
-    await database_sync_to_async(config.delete)()
-    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=orphaned.id)
-    assert refreshed.scout_config_id is None
-    # The runner needs a current config to spawn the fresh run, so recreate one (this is
-    # the exact scenario the bug describes — config got re-created out from under a row
-    # that's still RUNNING from the previous incarnation).
-    await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-
-    async def fake_spawn(**_kwargs):
-        return "fresh run completed"
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    # The orphaned row (now with null scout_config_id) got healed despite the FK mismatch.
-    healed = await database_sync_to_async(SignalScoutRun.objects.get)(id=orphaned.id)
-    assert healed.status == SignalScoutRun.Status.FAILED
-    assert "auto-healed" in healed.summary.lower()
-    # Fresh run proceeded — the partial unique constraint isn't blocking us anymore.
-    assert result.status == SignalScoutRun.Status.COMPLETED
-    assert result.run_id is not None and result.run_id != str(orphaned.id)
+    # No bridge row orphaned — it's created inside the patched-out `_spawn_and_run`.
+    count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
+    assert count == 0
 
 
 @pytest.mark.asyncio

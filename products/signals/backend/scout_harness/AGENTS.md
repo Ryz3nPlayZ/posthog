@@ -81,20 +81,23 @@ management command (see `../management/AGENTS.md`).
 `arun_signals_scout()` is the main entrypoint. One call → one `SignalScoutRun` row →
 one sandbox session → zero or more emitted signals.
 
-- The harness owns the run-row lifecycle (insert at start, finalize on completion or
-  failure). A partial unique constraint on `(team, skill_name) WHERE status='running'`
-  is the single-flight guard against tick-over-tick collisions; an `IntegrityError`
-  there becomes a clean skip with `skip_reason="already_running"`.
+- The harness inserts the bridge row at the start of a run (inside `_spawn_and_run`).
+  `SignalScoutRun` is now a thin bridge to a Tasks `TaskRun` — run status / timing / error
+  live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
+  `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has
+  `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was
+  dropped in the bridge simplification; a `task_run.status`-based constraint plus active
+  stale-run recovery (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; `enabled_skill_names` on the
   team's `SignalScoutConfig` narrows the candidate pool the coordinator samples from.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
-  sandbox. Both UUIDs are captured into `SignalScoutRun.metadata` (`task_id`,
-  `task_run_id`) by `_record_task_linkage` immediately after the session returns
-  — this powers the `task_url` deep-link surfaced on the run serializers
-  (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key
-  for the future LLM-analytics token / cost roll-up. `_finalize_failed` reads-modifies-writes
-  metadata so the linkage survives to the failure row a debugger needs to land on.
+  sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
+  by the `on_task_run_created` hook before the agent's first turn — this powers the
+  `task_url` deep-link on the run serializers
+  (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
+  LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
+  LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path
@@ -133,10 +136,11 @@ one sandbox session → zero or more emitted signals.
   call to `sync_canonical_skills()` runs on every tick and silently swallows parser
   errors (logs only), so a quiet schema break can leave canonical content stale on
   every team.
-- Run-row lifecycle invariants: `SCHEDULED → RUNNING → {COMPLETED, FAILED, ABANDONED}`.
-  Anything that can leave a row stuck in `RUNNING` past the workflow deadline must be
-  rescued by `runner._drain_final_log` so the partial unique constraint doesn't
-  permanently block future runs of the same `(team, skill)` pair.
+- Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by
+  `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A
+  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) blocks new runs for
+  that `(team, skill)` via `_has_running_run` until it transitions out; active recovery of
+  such rows is a deferred follow-up (`_self_heal_stale_runs` is currently a no-op).
 - Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
   the embeddings pipeline or `SignalReport` directly from harness code.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update

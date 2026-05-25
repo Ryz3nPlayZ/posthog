@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -103,15 +102,11 @@ async def arun_signals_scout(
         team, skill_name, version=skill_version
     )
 
-    # Self-heal stale RUNNING rows whose age exceeds 2x their max_runtime_s. Catches
-    # rows left behind when a worker / sandbox died before the cleanup path could run
-    # (e.g. SIGTERM during file-watcher restart, kernel OOM, asyncio cancellation that
-    # escaped the harness). Without this, a single stale row blocks every subsequent
-    # coordinator tick from spawning a fresh run. Keyed on `(team, skill_name)` to match
-    # the partial unique index `signal_scout_run_one_running_per_team_skill` — keying on
-    # `config_id` would leave orphaned rows with a stale or null `scout_config_id` (e.g.
-    # after a config delete + recreate, since the FK is `SET_NULL`) un-healable while the
-    # DB constraint keeps blocking new inserts for the same (team, skill).
+    # Hook for stale-run recovery — currently a no-op (see `_self_heal_stale_runs`). The
+    # partial unique index that made orphaned RUNNING rows block dispatch was dropped when
+    # `SignalScoutRun` became a `TaskRun` bridge (status now lives on `task_run.status`), so
+    # stale bridge rows no longer gate new runs at the DB level. Kept as a seam for the
+    # `task_run.status`-based recovery follow-up.
     await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, skill_name)
 
     # Skip-if-running guard, keyed on (team, skill_name). Different skills for the
@@ -186,8 +181,10 @@ async def arun_signals_scout(
         # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
         # activity as failed. Post-collapse the bridge row's status flows from its
         # linked TaskRun (managed by MultiTurnSession), so we don't update anything
-        # here directly. The self-heal path on the next coordinator tick reconciles
-        # any bridge row whose TaskRun got stranded in IN_PROGRESS.
+        # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
+        # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
+        # `_has_running_run` until it transitions out — active recovery is a deferred
+        # follow-up (see `_self_heal_stale_runs`).
         runtime_s = time.monotonic() - started
         logger.warning(
             "signals_scout: run cancelled mid-flight",
