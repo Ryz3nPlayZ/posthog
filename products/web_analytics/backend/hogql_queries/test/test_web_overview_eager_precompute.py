@@ -5,14 +5,11 @@ Eager and lazy share the execute path — what differs is the gate:
 * Eager: Constance allowlist (auto-selected from PreaggregationJob activity +
   FORCED/BLOCKED overrides). No FF, no per-query opt-in.
 
-The Dagster cache_warming job replays enrolled teams' actual queries from
-`metrics_query_log_mv` every hour; those replays land on the eager gate (no
-opt-in required), call `execute_lazy_precomputed_read` → `ensure_precomputed`,
-and populate the cache. Real user queries then land on the warm cache.
-
 Two warming sources keep the eager cache populated:
 * `cache_warming.py` replays the team's actual queries from
-  `metrics_query_log_mv` hourly — those replays land on the eager gate.
+  `metrics_query_log_mv` hourly — those replays land on the eager gate
+  (no opt-in required), call `execute_lazy_precomputed_read` →
+  `ensure_precomputed`, and populate the cache.
 * `web_analytics_eager_baseline_warming_job` runs a fixed `last 30d` matrix
   (overview + 3 baseline breakdowns) daily, covering the head of the
   query distribution and onboarding teams without sufficient history yet.
