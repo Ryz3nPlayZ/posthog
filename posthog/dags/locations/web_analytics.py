@@ -23,7 +23,7 @@ schedules = [
     cache_warming.web_analytics_cache_warming_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
-    eager_web_analytics_precompute.web_analytics_eager_precompute_schedule,
+    eager_web_analytics_precompute.web_analytics_eager_precompute_team_selection_schedule,
 ]
 
 # Only include the backfill schedule when not in TEST mode
@@ -41,6 +41,7 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog,
         cache_favicons.cache_favicons,
         cache_favicons.cache_authorized_domain_favicons,
+        eager_web_analytics_precompute.web_analytics_eager_precompute_team_selection,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_team_selection_has_data,
@@ -51,7 +52,6 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
         cache_favicons.cache_authorized_domain_favicons_job,
-        eager_web_analytics_precompute.web_analytics_eager_precompute_job,
     ],
     schedules=schedules,
     resources=resources,

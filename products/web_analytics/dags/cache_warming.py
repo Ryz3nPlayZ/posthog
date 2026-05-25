@@ -49,8 +49,20 @@ def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool)
 
 
 def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
-    value = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
-    return value if isinstance(value, list) else []
+    """Teams to warm = the existing static allowlist UNION the eager-enrolled set.
+
+    The eager-enrolled set is populated by `eager_web_analytics_precompute`'s
+    daily team-selection asset and exposed via `get_eager_enrolled_team_ids()`.
+    Eager-enrolled teams piggy-back on this DAG's query-log replay so their
+    actual queries warm the lazy precompute cache; their per-query gate
+    (`can_use_eager_precompute`) lets the warming bypass the lazy rollout's
+    org-FF + per-query opt-in.
+    """
+    from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import get_eager_enrolled_team_ids
+
+    static = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
+    static_set = set(static) if isinstance(static, list) else set()
+    return sorted(static_set | get_eager_enrolled_team_ids())
 
 
 def queries_to_keep_fresh(
