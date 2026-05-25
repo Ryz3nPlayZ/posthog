@@ -21,8 +21,10 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
+    WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
+    can_use_eager_precompute as _can_use_eager_precompute_shared,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     check_common_eligible,
@@ -33,6 +35,11 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 )
 
 _FAMILY = "web_overview"
+
+# TTL aligned with `93dae1806f4 feat(web-analytics): set uniform 2-hour TTL` —
+# 2h is short enough that an eager-warmed dashboard sees fresh data within one
+# refresh cycle, long enough that the DAG's freshness-skip catches most cycles.
+INSERT_TTL_SECONDS = 2 * 60 * 60
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -50,7 +57,14 @@ WEB_OVERVIEW_LAZY_FAILED = Counter(
 def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web
     overview query. Web overview has no checks beyond the shared gate."""
-    return _can_use_lazy_precompute_shared(runner, log_prefix="web_overview")
+    return _can_use_lazy_precompute_shared(runner, log_prefix=_FAMILY)
+
+
+def can_use_eager_precompute(runner: "WebOverviewQueryRunner") -> bool:
+    """Return True iff the eager precompute path is eligible for this web
+    overview query — i.e. team is in the auto-selected/forced set and query
+    shape is supported. Skips lazy's org-FF + per-query opt-in checks."""
+    return _can_use_eager_precompute_shared(runner, log_prefix=_FAMILY)
 
 
 # Re-exported so callers (and tests) can still reach the eligibility checker
@@ -103,12 +117,15 @@ GROUP BY time_window_start
 """
 
 
-def ensure_web_overview_precomputed(
-    runner: "WebOverviewQueryRunner",
-    time_range_start: datetime,
-    time_range_end: datetime,
-) -> LazyComputationResult:
-    placeholders: dict[str, ast.Expr] = {
+def _build_placeholders(runner: "WebOverviewQueryRunner") -> dict[str, ast.Expr]:
+    """Build the placeholder AST dict for the web_overview INSERT.
+
+    Extracted so both the query-time `ensure_web_overview_precomputed` and the
+    DAG-side `_build_dag_placeholders` (in `eager_web_analytics_precompute.py`)
+    can compare ASTs in hash-parity tests — if the two produce different ASTs,
+    pre-warmed jobs are orphans the query path never finds.
+    """
+    return {
         "events_session_id": events_session_id_expr(runner),
         "event_type_filter": runner.event_type_expr,
         "user_filter": user_filter_expr(runner),
@@ -116,6 +133,12 @@ def ensure_web_overview_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
+
+def ensure_web_overview_precomputed(
+    runner: "WebOverviewQueryRunner",
+    time_range_start: datetime,
+    time_range_end: datetime,
+) -> LazyComputationResult:
     return ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
@@ -123,7 +146,7 @@ def ensure_web_overview_precomputed(
         time_range_end=time_range_end,
         ttl_seconds=LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
-        placeholders=placeholders,
+        placeholders=_build_placeholders(runner),
         query_type="web_overview_lazy_insert",
     )
 
@@ -330,6 +353,15 @@ def execute_lazy_precomputed_read(
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
         WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
+        # Eager cache-hit heuristic: if `ensure_*_precomputed` returned READY
+        # without paying for a fresh INSERT, the work was done by a previous
+        # caller (almost always the Dagster pre-warming job for eager teams).
+        # `ensure_duration_ms` includes a small PG read + AST hashing; a hit
+        # without INSERT stays well under 500ms even on slow hosts. The metric
+        # is labelled `family` only (not team_id) to keep cardinality bounded
+        # — per-team breakdown is available via Loki logs.
+        if ensure_duration_ms < 500:
+            WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT.labels(family=_FAMILY).inc()
         logger.info(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,

@@ -182,6 +182,104 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 - INITIAL_PAGE + bounce (entry-pathname tab) is a different SQL shape — separate precompute table or shared one with an entry-only state column.
 - `usedLazyPrecompute` is set on the response; the frontend's `PreAggregatedBadge` already keys off `usedPreAggregatedTables` so users see the badge without further wiring. Distinguishing lazy from v2 in the UI is a separate follow-up.
 
+## Eager precompute (Dagster-warmed, admin-controlled)
+
+Eager precompute is a third lane that shares the lazy execute path but uses a
+distinct rollout mechanism. A Dagster job runs every 15 minutes, scans the
+`PreaggregationJob` table to identify "heavy users" (teams with high distinct-
+query-hash diversity over a configurable lookback window), and pre-populates
+common date-range × host-filter combinations via `ensure_precomputed`.
+
+When an enrolled team subsequently runs a web overview query, the
+`can_use_eager_precompute` gate accepts it and `execute_lazy_precomputed_read`
+finds the data already READY — no inline INSERT, no waiting. Cache hits are
+tracked by `WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT{family}`.
+
+### Gating (no FF, no per-query opt-in)
+
+Eager teams are sourced from three Constance settings, unioned and filtered:
+
+```text
+eager_team_set = (AUTO_SELECTED ∪ FORCED) − BLOCKED
+```
+
+- `WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS` — written by the
+  Dagster team-selection op (`_select_eager_teams`). Do not edit manually.
+- `WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS` — admin override for
+  fast-tracking onboarding teams or pinning dogfood teams across deploys.
+- `WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS` — escape hatch for a
+  misbehaving team without removing them from lazy precompute.
+
+### Auto-selection heuristic
+
+`_select_eager_teams` (in `eager_web_analytics_precompute.py`) counts distinct
+`query_hash` per team over the last `WEB_ANALYTICS_EAGER_PRECOMPUTE_LOOKBACK_DAYS`
+(default 7d) of `PreaggregationJob` rows. Teams above
+`WEB_ANALYTICS_EAGER_PRECOMPUTE_MIN_JOBS_THRESHOLD` (default 20 distinct hashes)
+are sorted descending by diversity and capped at
+`WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_TEAMS` (default 20).
+
+Distinct hash (not raw count) is the chosen signal because a team running one
+query 1000 times benefits less from eager than a team running 50 distinct
+queries — the second team gets dramatically more cache hits per warm cycle.
+
+### TTL: 2 hours
+
+`INSERT_TTL_SECONDS = 2 * 60 * 60` (overview). Short enough that an enrolled
+team's dashboard sees data refreshed within one DAG cycle; long enough that the
+DAG's freshness skip catches most cycles.
+
+### Freshness skip
+
+Before calling `ensure_precomputed` for any (team × date_range × host) combo,
+the DAG calls `read_precomputed_jobs_if_ready`. If a fresh READY job exists,
+the work is skipped and `EAGER_PRECOMPUTE_SKIPPED_FRESH` ticks up. Healthy
+steady state: most combos skip; only fresh-now ranges actually do work.
+
+### Per-cycle cap
+
+`WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_JOBS_PER_TEAM` (default 60) bounds how many
+combinations a single team can monopolise per cycle. When hit,
+`EAGER_PRECOMPUTE_TRUNCATED` ticks up.
+
+### Observability (target: ~100% hit rate)
+
+Key Grafana panels:
+
+- **Hit rate** — `rate(web_analytics_eager_precompute_cache_hit_total{family}[5m]) /
+rate(web_analytics_lazy_precompute_success_total{family}[5m])`. Alert if `< 0.95`
+  for 10 minutes — usually points to a placeholder-hash drift between the DAG
+  and the query runner.
+- **Jobs triggered vs skipped** — stacked area on
+  `web_analytics_eager_precompute_jobs_triggered_total` and
+  `web_analytics_eager_precompute_skipped_fresh_total`. Healthy = mostly skipped.
+- **Team selection** — gauges
+  `web_analytics_eager_precompute_auto_selected_teams`,
+  `_forced_teams`, `_final_teams` track the enrolled set per cycle. Alert on
+  `_final_teams` derivative > 5 per cycle (selection thrashing).
+- **Per-team diversity** —
+  `topk(20, web_analytics_eager_precompute_team_diversity)`. Lets operators see
+  who the auto-selection picked and their diversity score.
+- **DAG duration** — `web_analytics_eager_precompute_dag_duration_seconds`.
+  Alert on p95 > 600s (half the schedule period).
+
+### Scope
+
+Overview only in this PR. Paths preagg pre-warming + query-side eager gate for
+paths is a follow-up — requires unifying `web_lazy_precompute_common.py` (used
+by paths from #59665) with `web_analytics_lazy_precompute.py`.
+
+### Out of band: new teams + slow-query teams
+
+The auto-selection heuristic catches "frequent users" but not:
+
+- **New teams** with < 1 lookback's worth of history (use `FORCED_TEAM_IDS`
+  to fast-track).
+- **Slow-query teams** that haven't yet opted in to lazy (use a follow-up
+  strategy mining `system.query_log` for high p95 latency).
+
+Both are tracked as planned follow-ups; the current PR lays the foundation.
+
 ## Related code
 
 - `posthog/hogql_queries/web_analytics/web_overview.py` — runner

@@ -53,6 +53,36 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
     ["family"],
 )
 
+# Eager precompute metrics — emitted by the same query-path code as the lazy
+# counters above, but labelled separately so dashboards can distinguish "team
+# was eager-allowlisted" from "team passed the org-FF + per-query opt-in" rollout.
+WEB_ANALYTICS_EAGER_PRECOMPUTE_REJECTED = Counter(
+    "web_analytics_eager_precompute_rejected_total",
+    "Requests refused by the eager precompute gate, by family and rejection reason.",
+    ["family", "reason"],
+)
+
+WEB_ANALYTICS_EAGER_PRECOMPUTE_FALLBACK = Counter(
+    "web_analytics_eager_precompute_fallback_total",
+    "Eager precompute fall-throughs after the gate accepted, by family and reason.",
+    ["family", "reason"],
+)
+
+WEB_ANALYTICS_EAGER_PRECOMPUTE_SUCCESS = Counter(
+    "web_analytics_eager_precompute_success_total",
+    "Requests served from the eager precompute path (DAG had pre-warmed the data), by family.",
+    ["family"],
+)
+
+# Cache hit: an eager-allowlisted team's query found a READY job populated by
+# the Dagster job rather than running an inline INSERT. This is the load-bearing
+# metric for the "100% hit rate" goal on enrolled teams.
+WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT = Counter(
+    "web_analytics_eager_precompute_cache_hit_total",
+    "Eager precompute reads served from a DAG-warmed READY job (no inline INSERT), by family.",
+    ["family"],
+)
+
 # Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
 # timezone — boundaries line up exactly when the team-local window is converted
 # to UTC before filtering on `time_window_start`. Half-hour-offset timezones
@@ -178,6 +208,17 @@ class DateRangeOverMax(LazyPrecomputeIneligible):
         super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
 
 
+class TeamNotInEagerAllowlist(LazyPrecomputeIneligible):
+    """Raised when a team is not currently enrolled in eager precompute.
+
+    The enrolled set is the union of WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS
+    (written by the Dagster team-selection op) and WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS
+    (admin override), minus WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS.
+    """
+
+    pass
+
+
 def can_use_lazy_precompute(
     runner: LazyPrecomputeRunner,
     *,
@@ -213,20 +254,23 @@ def can_use_lazy_precompute(
     return True
 
 
-def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
-    """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
-    the lazy path on grounds that apply to every web analytics runner. Returns
-    None on success."""
+def check_rollout_gate(runner: LazyPrecomputeRunner) -> None:
+    """Lazy-only gate: PostHog feature flag + per-query opt-in.
+
+    Eager precompute has its own rollout mechanism (admin allowlist + auto
+    selection from PreaggregationJob usage), so it skips this check entirely
+    and only calls `check_query_shape_eligible`.
+
+    - `web-analytics-precompute-toggle` (PostHog feature flag): the same flag
+      the frontend already uses to show/hide the "Allow precompute" button in
+      the Web Analytics ScenePanel. Evaluated at the organization level. The
+      SDK swallows its own exceptions and returns None (falsy) on failure, so
+      a flag-service outage fails-closed.
+    - `query.useWebAnalyticsPrecompute`: per-query parameter set by the
+      "Allow precompute" toggle.
+    """
     query = runner.query
 
-    # Rollout gate: shared PostHog feature flag AND per-query opt-in.
-    #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
-    #     flag the frontend already uses to show/hide the "Allow precompute"
-    #     button in the Web Analytics ScenePanel. The flag is evaluated at the
-    #     organization level. The SDK swallows its own exceptions and returns
-    #     None (falsy) on failure, so a flag-service outage fails-closed.
-    #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
-    #     "Allow precompute" toggle).
     if not posthoganalytics.feature_enabled(
         "web-analytics-precompute-toggle",
         str(runner.team.uuid),
@@ -245,6 +289,17 @@ def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
 
     if query.useWebAnalyticsPrecompute is not True:
         raise PerQueryOptInNotSet()
+
+
+def check_query_shape_eligible(runner: LazyPrecomputeRunner) -> None:
+    """Raise a `LazyPrecomputeIneligible` subclass if the query's shape is not
+    supported by the precompute schema (regardless of rollout).
+
+    Both the lazy and eager paths share this check — query shape constraints
+    are about whether the precomputed table can actually serve the query
+    correctly, not about who is allowed to use it.
+    """
+    query = runner.query
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
@@ -288,6 +343,72 @@ def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
     days = (date_to - date_from).days
     if days > MAX_PRECOMPUTE_DAYS:
         raise DateRangeOverMax(days)
+
+
+def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
+    """Lazy-path eligibility: rollout gate + query shape.
+
+    Preserves the pre-split behavior so existing callers (web overview / web
+    stats / web stats paths lazy modules) need no changes.
+    """
+    check_rollout_gate(runner)
+    check_query_shape_eligible(runner)
+
+
+def get_eager_enrolled_team_ids() -> set[int]:
+    """Return the current eager-enrolled team set.
+
+    Sourced from Constance settings:
+      eager_set = (AUTO_SELECTED ∪ FORCED) - BLOCKED
+
+    AUTO_SELECTED is written by the Dagster team-selection op
+    (`web_analytics_eager_from_lazy_usage`) and refreshed each cycle.
+    FORCED/BLOCKED are admin overrides.
+    """
+    from posthog.models.instance_setting import get_instance_setting
+
+    auto_selected = set(get_instance_setting("WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS") or [])
+    forced = set(get_instance_setting("WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS") or [])
+    blocked = set(get_instance_setting("WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS") or [])
+    return (auto_selected | forced) - blocked
+
+
+def can_use_eager_precompute(
+    runner: LazyPrecomputeRunner,
+    *,
+    log_prefix: str,
+    extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
+) -> bool:
+    """Return True iff the team is eager-enrolled AND the query shape is supported.
+
+    Distinct from the lazy gate: no PostHog feature flag check, no per-query
+    opt-in. Eager enrollment is purely allowlist-based — the team either is or
+    isn't in the auto-selected/forced set.
+
+    `extra_check` lets runners add runner-specific shape constraints (e.g.
+    paths runner requires breakdownBy=PAGE), same as the lazy gate.
+    """
+    try:
+        if runner.team.pk not in get_eager_enrolled_team_ids():
+            raise TeamNotInEagerAllowlist()
+        check_query_shape_eligible(runner)
+        if extra_check is not None:
+            extra_check(runner)
+    except LazyPrecomputeIneligible as exc:
+        reason = type(exc).__name__
+        WEB_ANALYTICS_EAGER_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
+        logger.info(
+            f"{log_prefix}_eager_precompute_rejected",
+            team_id=runner.team.pk,
+            reason=reason,
+            detail=str(exc) or None,
+        )
+        return False
+    logger.info(
+        f"{log_prefix}_eager_precompute_eligible",
+        team_id=runner.team.pk,
+    )
+    return True
 
 
 def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:

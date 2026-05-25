@@ -279,6 +279,51 @@ CONSTANCE_CONFIG = {
         "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
         list[int],
     ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_TEAMS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_TEAMS", default=20, type_cast=int),
+        "Maximum number of teams the eager DAG will pre-warm per cycle. Selected automatically "
+        "by the web_analytics_eager_from_lazy_usage strategy (top users in last LOOKBACK_DAYS).",
+        int,
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_LOOKBACK_DAYS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_LOOKBACK_DAYS", default=7, type_cast=int),
+        "Lookback window for the eager team-selection strategy when mining PreaggregationJob.",
+        int,
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MIN_JOBS_THRESHOLD": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_MIN_JOBS_THRESHOLD", default=20, type_cast=int),
+        "Minimum distinct query_hash count over the lookback window for a team to be "
+        "auto-enrolled in eager precompute.",
+        int,
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_JOBS_PER_TEAM": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_JOBS_PER_TEAM", default=60, type_cast=int),
+        "Soft cap on precompute jobs the eager DAG may trigger per team per run (date_ranges × path/host variants).",
+        int,
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_TOP_PATHS_PER_TEAM": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_TOP_PATHS_PER_TEAM", default=10, type_cast=int),
+        "Number of top URL paths to eager-precompute per team, mined from query_log.",
+        int,
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS", default=[], type_cast=list[int]),
+        "Override: teams ALWAYS included in eager pre-warming regardless of auto-selection "
+        "(e.g. dogfood team or new-onboard fast-tracks).",
+        list[int],
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS", default=[], type_cast=list[int]),
+        "Override: teams NEVER included in eager pre-warming (escape hatch without removing them "
+        "from lazy precompute).",
+        list[int],
+    ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS", default=[], type_cast=list[int]),
+        "Auto-selected eager precompute team IDs, written by the team-selection Dagster op. "
+        "Do not edit manually — use FORCED_TEAM_IDS/BLOCKED_TEAM_IDS for overrides.",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -328,6 +373,14 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_TEAMS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_LOOKBACK_DAYS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MIN_JOBS_THRESHOLD",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_MAX_JOBS_PER_TEAM",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_TOP_PATHS_PER_TEAM",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_BLOCKED_TEAM_IDS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_AUTO_SELECTED_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",

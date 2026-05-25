@@ -19,6 +19,7 @@ from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+    can_use_eager_precompute,
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
 )
@@ -88,6 +89,18 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             return None
         return execute_lazy_precomputed_read(self)
 
+    def get_eager_precomputed_row(self) -> Optional[list]:
+        """Eager precompute short-circuit. Falls through to the lazy gate (then
+        v2/raw) if the team is not in the eager allowlist or shape is unsupported.
+
+        Shares the same execute path as the lazy gate — the difference is the
+        gate, not the read. An eager-allowlisted team typically finds the data
+        already READY (warmed by the Dagster job) and skips the inline INSERT,
+        which is tracked by `WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT`."""
+        if not can_use_eager_precompute(self):
+            return None
+        return execute_lazy_precomputed_read(self)
+
     def _build_response_from_row(
         self,
         row: list,
@@ -125,6 +138,12 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:
+        # Eager precompute first: enrolled teams find DAG-warmed data and skip
+        # the inline INSERT entirely. Falls through to lazy → v2 → raw on miss.
+        eager_row = self.get_eager_precomputed_row()
+        if eager_row is not None:
+            return self._build_response_from_row(eager_row, used_pre_aggregated=True, used_lazy_precompute=True)
+
         lazy_row = self.get_lazy_precomputed_row()
         if lazy_row is not None:
             return self._build_response_from_row(lazy_row, used_pre_aggregated=True, used_lazy_precompute=True)
