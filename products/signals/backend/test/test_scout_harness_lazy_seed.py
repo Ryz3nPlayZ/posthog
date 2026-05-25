@@ -456,6 +456,66 @@ class TestSyncCanonicalSkills(BaseTest):
         assert result.updated_skill_names == ()
         assert LLMSkill.objects.filter(team=self.team, name="signals-scout-beta", is_latest=True).exists()
 
+    def test_prunes_rows_whose_canonical_was_removed_from_disk(self) -> None:
+        # Two specialists seeded, then one is removed from the canonical fleet on disk. The
+        # reverse-reconciliation pass must tombstone the orphaned live row so the coordinator
+        # stops sampling a scout that's no longer part of the fleet.
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        beta = _make_canonical("signals-scout-beta", body="beta body")
+        with self._patch_canonicals((alpha, beta)):
+            sync_canonical_skills(self.team)
+        assert LLMSkill.objects.filter(
+            team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
+        ).exists()
+
+        # beta is deleted from disk — only alpha remains canonical.
+        with self._patch_canonicals((alpha,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.pruned_skill_names == ("signals-scout-beta",)
+        assert result.updated_skill_names == ()
+        # beta's live row is soft-deleted; alpha is untouched and still live.
+        beta_row = LLMSkill.objects.get(team=self.team, name="signals-scout-beta")
+        assert beta_row.deleted is True
+        assert beta_row.is_latest is False
+        assert LLMSkill.objects.filter(
+            team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
+        ).exists()
+
+    def test_does_not_prune_when_disk_read_is_empty(self) -> None:
+        # Defensive: a broken / empty canonical dir must NOT tombstone the whole fleet, even
+        # with prune on. The `not canonicals` early-return guards this — an empty discover
+        # result is treated as "couldn't read", not "delete everything".
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+
+        with self._patch_canonicals(()):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.pruned_skill_names == ()
+        assert result.skipped_reason is not None
+        assert LLMSkill.objects.filter(
+            team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
+        ).exists()
+
+    def test_does_not_prune_by_default(self) -> None:
+        # The runner's cold-start sync calls without `prune`, so an ad-hoc run must NOT reap
+        # the rest of the team's fleet — it only ensures its own skill exists / is current.
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        beta = _make_canonical("signals-scout-beta", body="beta body")
+        with self._patch_canonicals((alpha, beta)):
+            sync_canonical_skills(self.team)
+
+        # beta removed from disk, but prune defaults off → beta's live row survives.
+        with self._patch_canonicals((alpha,)):
+            result = sync_canonical_skills(self.team)
+
+        assert result.pruned_skill_names == ()
+        assert LLMSkill.objects.filter(
+            team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
+        ).exists()
+
     def test_backfills_canonical_hash_on_pre_hash_rows(self) -> None:
         # Simulate a pre-existing row from the seed-only era: harness-seeded but missing
         # `canonical_hash` in metadata. Sync should write a baseline equal to the row's

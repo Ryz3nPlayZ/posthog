@@ -105,7 +105,10 @@ def _collect_planned_runs() -> list[PlannedRun]:
         # SKILL.md change rolls out within one coordinator tick. Failures don't
         # abort the tick: log and continue with whatever skills the team has.
         try:
-            sync_canonical_skills(team)
+            # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
+            # tombstones rows whose canonical was removed from disk (the runner cold-start sync
+            # leaves prune off).
+            sync_canonical_skills(team, prune=True)
         except Exception:
             logger.exception(
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",

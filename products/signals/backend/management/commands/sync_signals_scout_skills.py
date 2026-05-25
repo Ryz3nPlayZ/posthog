@@ -77,14 +77,17 @@ class Command(BaseCommand):
             "diverged": 0,
             "tombstoned": 0,
             "backfilled": 0,
+            "pruned": 0,
         }
         for team in teams:
-            result = sync_canonical_skills(team)
+            # Explicit reconciliation path → prune orphaned rows (canonical removed from disk).
+            result = sync_canonical_skills(team, prune=True)
             totals["created"] += len(result.created_skill_names)
             totals["updated"] += len(result.updated_skill_names)
             totals["diverged"] += len(result.diverged_skill_names)
             totals["tombstoned"] += len(result.tombstoned_skill_names)
             totals["backfilled"] += len(result.backfilled_skill_names)
+            totals["pruned"] += len(result.pruned_skill_names)
             self._print_team_result(team, result)
 
         self.stdout.write("")
@@ -95,7 +98,8 @@ class Command(BaseCommand):
                 f"~{totals['updated']} updated, "
                 f"={totals['diverged']} diverged (left alone), "
                 f"#{totals['tombstoned']} tombstoned, "
-                f"·{totals['backfilled']} backfilled"
+                f"·{totals['backfilled']} backfilled, "
+                f"-{totals['pruned']} pruned"
             )
         )
 
@@ -129,7 +133,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING("[dry-run] no changes will be persisted"))
         with transaction.atomic():
             for team in teams:
-                result = sync_canonical_skills(team)
+                # Preview prune too (rolled back below), so the dry-run shows what would be reaped.
+                result = sync_canonical_skills(team, prune=True)
                 self._print_team_result(team, result, prefix="[dry-run] ")
             transaction.set_rollback(True)
 
@@ -148,6 +153,8 @@ class Command(BaseCommand):
             parts.append(f"#tombstoned {list(result.tombstoned_skill_names)}")
         if result.backfilled_skill_names:
             parts.append(f"·backfilled {list(result.backfilled_skill_names)}")
+        if result.pruned_skill_names:
+            parts.append(f"-pruned {list(result.pruned_skill_names)}")
         if not parts:
             self.stdout.write(f"{prefix}team {team.id}: no changes")
             return

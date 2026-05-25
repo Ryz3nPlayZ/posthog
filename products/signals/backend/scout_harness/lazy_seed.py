@@ -90,6 +90,11 @@ class SyncResult:
     - `backfilled_skill_names`: harness-seeded rows that pre-dated the hash-tracking change
       and had no `canonical_hash` in metadata. We backfilled the hash from the row's current
       content as a one-time baseline so future syncs can compare.
+    - `pruned_skill_names`: live `signals-scout-*` rows whose canonical skill was removed from
+      disk (no longer in the discovered fleet). Soft-deleted (`deleted=True`, `is_latest=False`)
+      so the coordinator stops sampling a scout that's no longer part of the canonical fleet.
+      Unlike `tombstoned_skill_names` (a passive observation that the team already removed it),
+      this is an active reconciliation we perform.
 
     A skill name appears in at most one tuple per call. `skipped_reason` is set when no per-skill
     work was even attempted (e.g. the canonical dir is missing on disk in tests).
@@ -100,6 +105,7 @@ class SyncResult:
     diverged_skill_names: tuple[str, ...] = ()
     tombstoned_skill_names: tuple[str, ...] = ()
     backfilled_skill_names: tuple[str, ...] = ()
+    pruned_skill_names: tuple[str, ...] = ()
     skipped_reason: str | None = None
 
 
@@ -355,13 +361,19 @@ def _backfill_canonical_hash(skill: LLMSkill, row_hash: str) -> None:
     LLMSkill.objects.filter(pk=skill.pk).update(metadata=metadata)
 
 
-def sync_canonical_skills(team: Team) -> SyncResult:
+def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     """Reconcile a team's `signals-scout-*` rows with the canonical fleet on disk.
 
     Walks each canonical skill in `products/signals/skills/` and decides per-skill whether
     to create, update, leave-as-diverged, leave-as-tombstone, or backfill a baseline hash.
-    See `SyncResult` for the four outcome buckets and the section comments below for the
-    full decision table.
+    See `SyncResult` for the outcome buckets and the section comments below for the full
+    decision table.
+
+    `prune` (default off) additionally tombstones live `signals-scout-*` rows whose canonical
+    was removed from disk. It's a destructive reconciliation reserved for the deliberate paths
+    — the coordinator tick and the explicit `sync_signals_scout_skills` command. The runner's
+    cold-start sync leaves it off: a single ad-hoc run should only ensure its own skill exists
+    and is current, not reap the rest of the team's fleet.
 
     Idempotent and safe to call on every coordinator tick — the only DB writes happen when
     something actually needs to change, and IntegrityError on races is logged-and-swallowed.
@@ -375,6 +387,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
     diverged: list[str] = []
     tombstoned: list[str] = []
     backfilled: list[str] = []
+    pruned: list[str] = []
 
     for canonical in canonicals:
         canonical_hash = _compute_canonical_hash(canonical)
@@ -446,7 +459,25 @@ def sync_canonical_skills(team: Team) -> SyncResult:
                 extra={"team_id": team.id, "skill_name": canonical.name},
             )
 
-    if created or updated or backfilled:
+    if prune:
+        # Reverse reconciliation: tombstone live `signals-scout-*` rows whose canonical was
+        # removed from disk. The per-canonical loop above only visits skills still present in
+        # the discovered fleet, so a scout deleted from `products/signals/skills/` would
+        # otherwise leave orphaned live rows the coordinator keeps sampling. Soft-delete them —
+        # never hard-delete (run history + audit). The `not canonicals` early-return above
+        # means a broken/empty disk read can't reach here and tombstone the whole fleet.
+        canonical_names = {c.name for c in canonicals}
+        orphan_names = list(
+            LLMSkill.objects.filter(team=team, deleted=False, name__startswith=SIGNALS_SCOUT_SKILL_PREFIX)
+            .exclude(name__in=canonical_names)
+            .values_list("name", flat=True)
+            .distinct()
+        )
+        for name in orphan_names:
+            LLMSkill.objects.filter(team=team, name=name, deleted=False).update(deleted=True, is_latest=False)
+            pruned.append(name)
+
+    if created or updated or backfilled or pruned:
         logger.info(
             "signals_scout: synced canonical skills",
             extra={
@@ -456,6 +487,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
                 "backfilled": backfilled,
                 "diverged": diverged,
                 "tombstoned": tombstoned,
+                "pruned": pruned,
             },
         )
 
@@ -465,6 +497,7 @@ def sync_canonical_skills(team: Team) -> SyncResult:
         diverged_skill_names=tuple(diverged),
         tombstoned_skill_names=tuple(tombstoned),
         backfilled_skill_names=tuple(backfilled),
+        pruned_skill_names=tuple(pruned),
     )
 
 
