@@ -9,7 +9,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.github_callback.state import store_personal_authorize_state
+from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
@@ -136,7 +136,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
+        "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url_when_no_team_github(self, _mock_settings):
@@ -167,7 +167,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
+        "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
@@ -214,7 +214,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
+        "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
@@ -246,7 +246,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
     @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
+        "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
@@ -263,7 +263,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
-            "posthog.api.github_callback.personal_state.get_instance_settings",
+            "posthog.api.github_callback.types.get_instance_settings",
             return_value={"GITHUB_APP_SLUG": ""},
         ):
             response = self.client.post("/api/users/@me/integrations/github/start/")
@@ -304,7 +304,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             created_by=self.user,
         )
         state = "tok_oauth_123"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.PERSONAL_OAUTH,
@@ -364,7 +364,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             created_by=self.user,
         )
         state = "tok_oauth_mismatch"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.PERSONAL_OAUTH,
@@ -417,7 +417,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = "tok_oauth_discover_123"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.OAUTH_DISCOVER,
@@ -446,7 +446,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
+        "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     @patch("posthog.api.user_integration.requests.get")
@@ -461,7 +461,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
 
         state = "tok_oauth_discover_empty"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.OAUTH_DISCOVER,
@@ -500,7 +500,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = "test_state_123"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(token=state, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
         )
 
@@ -552,7 +552,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = f"test_state_{connect_from}"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.PERSONAL_INSTALL,
@@ -575,7 +575,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_link_redirects_to_mobile_deep_link_with_error(self):
         """When GitHub returns an error, the mobile deep link still carries provider + error."""
         state = "test_state_posthog_mobile_error"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.PERSONAL_INSTALL,
@@ -596,7 +596,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("error=access_denied", loc)
 
     def test_github_link_callback_rejects_mismatched_state(self):
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(token="valid_state", flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
         )
         response = self.client.get(
@@ -647,7 +647,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_integration_from_install.return_value = team_integration
 
         state = "tok_team_oauth_123"
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.TEAM_OAUTH,
@@ -678,7 +678,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_link_callback_team_oauth_authorize_rejects_user_outside_team(self):
         state = "tok_team_outside"
         # Random team_id that the user doesn't belong to.
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
                 flow=FlowKind.TEAM_OAUTH,

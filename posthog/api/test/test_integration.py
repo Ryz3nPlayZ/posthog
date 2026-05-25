@@ -16,7 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.github_callback.state import store_github_authorize_state, store_personal_authorize_state
+from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -1311,7 +1311,15 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_create_github_integration_with_invalid_state_rejected(self, mock_from_install, client: HttpClient):
         client.force_login(self.user)
-        store_github_authorize_state(self.user.id, "correct-token", "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="correct-token",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations/",
@@ -1381,7 +1389,15 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "valid-token-abc123"
-        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         mock_from_code.return_value = GitHubUserAuthorization(
             gh_id=42,
@@ -1426,7 +1442,15 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "single-use-token"
-        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         mock_from_code.return_value = GitHubUserAuthorization(
             gh_id=42,
@@ -1470,7 +1494,15 @@ class TestGitHubIntegrationStateValidation:
         )
         client.force_login(other_user)
         # Token belongs to self.user, not other_user
-        store_github_authorize_state(self.user.id, "victim-token", "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="victim-token",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations/",
@@ -1489,7 +1521,15 @@ class TestGitHubIntegrationStateValidation:
     ):
         client.force_login(self.user)
         state_token = "valid-token"
-        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         mock_from_code.return_value = None
 
@@ -1531,7 +1571,15 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "valid-attacker-state"
-        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url="" or None,
+            ),
+        )
 
         # The App-JWT call in integration_from_installation_id succeeds for any of the
         # App's installations (this is intrinsic to GitHub Apps — the JWT is App-scoped,
@@ -1639,14 +1687,22 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         location = response["Location"]
         assert location.startswith("/login?next=")
-        assert "integrations%2Fgithub%2Fcallback" in location
+        assert "/integrations/github/callback" in location
         for forbidden in must_not_contain:
             assert forbidden not in location
 
     def test_github_error_redirects_with_setup_error(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        store_github_authorize_state(self.user.id, "t", next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="t",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get("/integrations/github/callback/", {"error": "access_denied"})
 
@@ -1657,7 +1713,15 @@ class TestGitHubTeamIntegrationComplete:
     def test_missing_installation_id_redirects_pending(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        store_github_authorize_state(self.user.id, "t", next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="t",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get("/integrations/github/callback/")
 
@@ -1676,7 +1740,15 @@ class TestGitHubTeamIntegrationComplete:
             f"/account-connected/github-integration?provider=github&project_id={self.team.pk}&connect_from=posthog_code"
         )
         state_token = "valid-token"
-        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         mock_from_code.return_value = self._github_user_authorization()
         mock_verify.return_value = True
@@ -1711,7 +1783,15 @@ class TestGitHubTeamIntegrationComplete:
 
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
         state_token = "legacy-token"
-        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         mock_from_code.return_value = self._github_user_authorization()
         mock_verify.return_value = True
@@ -1740,7 +1820,7 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(self.user)
         state_token = "personal-install-token"
         state = urlencode({"token": state_token, "source": "user_integration"})
-        store_personal_authorize_state(
+        store_unified_authorize_state(
             GitHubAuthorizeState(token=state_token, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
         )
 
@@ -1841,7 +1921,15 @@ class TestGitHubTeamIntegrationComplete:
         mock_refresh.return_value = self._team_github_integration(installation_id="98797544")
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
         state_token = "ad89fbef5ced409fa055f4918b4a06b664f938506ed7aa8007cdc6cfd819be1055"
-        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1867,7 +1955,15 @@ class TestGitHubTeamIntegrationComplete:
         next_path = (
             f"/account-connected/github-integration?provider=github&project_id={self.team.pk}&connect_from=posthog_code"
         )
-        store_github_authorize_state(self.user.id, "prepare-token", next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="prepare-token",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1882,7 +1978,15 @@ class TestGitHubTeamIntegrationComplete:
     def test_install_callback_without_state_redirects_invalid_state(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        store_github_authorize_state(self.user.id, "valid-token", next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="valid-token",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1898,7 +2002,15 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
         state_token = "orphan-token"
-        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1925,7 +2037,15 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(member)
         state_token = "member-token"
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
-        store_github_authorize_state(member.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=member.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1949,7 +2069,15 @@ class TestGitHubTeamIntegrationComplete:
         )
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
         state_token = "victim-token"
-        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path or None,
+            ),
+        )
 
         client.force_login(attacker)
         response = client.get(
@@ -1991,6 +2119,43 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error" not in response["Location"]
         assert f"integration_id={existing.id}" in response["Location"]
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_team_prepare_callback_update_wins_when_personal_integration_also_exists(
+        self, mock_refresh, client: HttpClient
+    ):
+        client.force_login(self.user)
+        team_integration = self._team_github_integration()
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_old", "user_access_token": "gho_user"},
+        )
+        next_path = f"/project/{self.team.pk}/settings/environment-integrations"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="team-update-token",
+                flow=FlowKind.TEAM_UPDATE,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+        mock_refresh.return_value = team_integration
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"installation_id": "12345", "setup_action": "update"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "environment-integrations" in response["Location"]
+        assert "user-personal-integrations" not in response["Location"]
+        assert "github_link_success" not in response["Location"]
+        assert f"integration_id={team_integration.id}" in response["Location"]
+        mock_refresh.assert_called_once()
 
 
 class TestStripeIntegration:

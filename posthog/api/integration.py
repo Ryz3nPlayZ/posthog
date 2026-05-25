@@ -26,15 +26,14 @@ from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
-    prepare_team_github_manage_callback,
 )
+from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_app_install_url
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -658,11 +657,16 @@ class IntegrationViewSet(
         elif kind == "github":
             if next and not is_relative_url(next):
                 raise ValidationError("next must be a relative path starting with /")
-            query_params = urlencode({"state": urlencode({"next": next, "token": token})})
-            app_slug = get_instance_setting("GITHUB_APP_SLUG")
-            installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
-            github_callback_state.store_github_authorize_state(
-                github_callback_state.authenticated_user_id(request), token, next, self.team_id
+            state_param = urlencode({"next": next, "token": token})
+            installation_url = github_app_install_url(state_param)
+            github_callback_state.store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token=token,
+                    flow=FlowKind.TEAM_INSTALL,
+                    user_id=github_callback_state.authenticated_user_id(request),
+                    team_id=self.team_id,
+                    next_url=next or None,
+                ),
             )
             return redirect(installation_url)
 
@@ -1063,10 +1067,17 @@ class IntegrationViewSet(
         serializer = GitHubPrepareCallbackRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         next_url = str(serializer.validated_data.get("next") or "")
-        prepare_team_github_manage_callback(
-            user_id=github_callback_state.authenticated_user_id(request),
-            next_url=next_url,
-            team_id=self.team_id,
+        if next_url and not is_relative_url(next_url):
+            raise ValidationError("next must be a relative path starting with /")
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.TEAM_UPDATE,
+                user_id=github_callback_state.authenticated_user_id(request),
+                team_id=self.team_id,
+                next_url=next_url or None,
+            ),
         )
         return Response(status=204)
 

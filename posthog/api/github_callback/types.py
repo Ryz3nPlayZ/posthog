@@ -1,14 +1,16 @@
 """Constants and small helpers shared across the GitHub callback modules."""
 
 import re
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
-from urllib.parse import parse_qsl, urlparse
+from typing import Any, Literal, Self
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.conf import settings
 
-from rest_framework.exceptions import ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
+from rest_framework.exceptions import ValidationError as ApiValidationError
+
+from posthog.models.instance_setting import get_instance_settings
 
 # Server-side state cache used by the personal GitHub linking flow (the install
 # callback and the OAuth-only fast paths). Keys are written when a flow starts
@@ -37,20 +39,72 @@ class FlowKind(StrEnum):
     PERSONAL_UPDATE = "personal_update"
     OAUTH_DISCOVER = "oauth_discover"
 
+    @property
+    def is_oauth_redirect(self) -> bool:
+        """OAuth returned to /complete/github-link/ — code exchange uses redirect_uri."""
+        return self in (FlowKind.PERSONAL_OAUTH, FlowKind.OAUTH_DISCOVER, FlowKind.TEAM_OAUTH)
 
-@dataclass(frozen=True)
-class GitHubAuthorizeState:
+    @property
+    def discovers_installations(self) -> bool:
+        return self is FlowKind.OAUTH_DISCOVER
+
+    @property
+    def creates_team_integration(self) -> bool:
+        return self is FlowKind.TEAM_OAUTH
+
+
+def team_id_from_next_url(next_url: str) -> int | None:
+    if not next_url:
+        return None
+    path_parts = [part for part in urlparse(next_url).path.split("/") if part]
+    if len(path_parts) >= 2 and path_parts[0] == "project":
+        try:
+            return int(path_parts[1])
+        except ValueError:
+            pass
+    return None
+
+
+def is_personal_github_setup_state(state_raw: str | None) -> bool:
+    """True when GitHub's Setup URL callback belongs to a personal UserIntegration flow."""
+    if not state_raw:
+        return False
+    return dict(parse_qsl(state_raw)).get("source") == "user_integration"
+
+
+class GitHubAuthorizeState(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
     token: str
     flow: FlowKind
     user_id: int
     team_id: int | None = None
     installation_id: str | None = None
-    next_url: str | None = None
+    next_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("next_url", "next"),
+        serialization_alias="next",
+    )
     connect_from: str | None = None
 
+    @classmethod
+    def from_cache(cls, token: str, payload: dict[str, Any]) -> Self:
+        return cls.model_validate({**payload, "token": token})
 
-@dataclass
-class CallbackContext:
+    @classmethod
+    def try_from_cache(cls, token: str, payload: dict[str, Any]) -> Self | None:
+        try:
+            return cls.from_cache(token, payload)
+        except ValidationError:
+            return None
+
+    def cache_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_none=True, by_alias=True)
+
+
+class CallbackContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     entry: Literal["setup_url", "oauth_redirect"]
     resume_path: str
     installation_id: str | None
@@ -63,8 +117,9 @@ class CallbackContext:
     authorize_state: GitHubAuthorizeState | None = None
 
 
-@dataclass(frozen=True)
-class FinishResult:
+class FinishResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     redirect_kind: Literal["team_setup", "personal_finish", "oauth_url", "team_oauth_success"]
     next_url: str | None = None
     team_id: int | None = None
@@ -77,38 +132,27 @@ class FinishResult:
     pending: bool = False
 
 
-def connect_from_for_next(next_url: str) -> str | None:
-    connect_from = dict(parse_qsl(urlparse(next_url).query)).get("connect_from")
-    return connect_from if connect_from == "posthog_code" else None
-
-
 def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
-def github_integrations_settings_path(team_id: int) -> str:
-    return f"/project/{team_id}/settings/project-integrations"
+def github_app_install_url(state: str) -> str:
+    instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
+    app_slug = instance_settings.get("GITHUB_APP_SLUG")
+    if not app_slug:
+        raise ApiValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
+    return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
 
 
-def github_oauth_callback_error_code(github_error: str) -> str:
-    return "access_denied" if github_error == "access_denied" else "github_oauth_error"
+def github_oauth_authorize_url(state: str) -> str:
+    if not settings.GITHUB_APP_CLIENT_ID:
+        raise ApiValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
+    return "https://github.com/login/oauth/authorize?" + urlencode(
+        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
+    )
 
 
 def is_valid_github_installation_id(installation_id: object | None) -> bool:
     if installation_id is None:
         return False
     return bool(GITHUB_INSTALLATION_ID_PATTERN.fullmatch(str(installation_id)))
-
-
-def validation_error_code(exc: ValidationError) -> str | None:
-    codes = exc.get_codes()
-    if isinstance(codes, list) and codes:
-        return str(codes[0])
-    if isinstance(codes, dict) and codes:
-        first = next(iter(codes.values()))
-        if isinstance(first, list) and first:
-            return str(first[0])
-        return str(first)
-    if isinstance(codes, str):
-        return codes
-    return None

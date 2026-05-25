@@ -7,7 +7,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -144,6 +145,33 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
+class IntegrationQuerySet(models.QuerySet["Integration"]):
+    def for_github_installation_id(self, installation_id: str | int) -> Self:
+        return self.filter(
+            Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
+        )
+
+
+class IntegrationManager(models.Manager["Integration"]):
+    def get_queryset(self) -> IntegrationQuerySet:
+        return IntegrationQuerySet(self.model, using=self._db)
+
+    def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
+        return (
+            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+    def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
+        user_team_ids = user.teams.values_list("id", flat=True)
+        return (
+            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
@@ -206,6 +234,8 @@ class Integration(models.Model):
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    objects = IntegrationManager()
 
     class Meta:
         constraints = [

@@ -11,11 +11,9 @@ Login management is fully handled by ``UserSocialAuth`` (python-social-auth) and
 is not controlled here.
 """
 
+import os
 from typing import Any, cast
 from urllib.parse import urlencode
-
-from django.http import HttpRequest
-from django.views.decorators.http import require_http_methods
 
 import requests
 import structlog
@@ -26,12 +24,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.github_callback import (
-    personal_state,
-    state as github_callback_state,
+from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.types import (
+    APP_CONNECT_FROM_VALUES,
+    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    github_oauth_authorize_url,
 )
-from posthog.api.github_callback.router import handle_oauth_redirect
-from posthog.api.github_callback.types import APP_CONNECT_FROM_VALUES, FlowKind, GitHubAuthorizeState
 from posthog.api.integration import (
     GitHubBranchesQuerySerializer,
     GitHubBranchesResponseSerializer,
@@ -323,7 +324,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
                 return fast_path_response
             if _team_github_installation_id(team) is None:
-                github_callback_state.store_personal_authorize_state(
+                github_callback_state.store_unified_authorize_state(
                     GitHubAuthorizeState(
                         token=token,
                         flow=FlowKind.OAUTH_DISCOVER,
@@ -331,9 +332,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                         connect_from=connect_from,
                     ),
                 )
-                return Response(
-                    {"install_url": personal_state.github_oauth_authorize_url(state), "connect_flow": "oauth_discover"}
-                )
+                return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
 
         # If the user already has linked integrations, check whether there are
         # any GitHub App installations they haven't linked yet. If everything
@@ -344,7 +343,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "All GitHub App installations accessible to your account are already linked."
             )
 
-        github_callback_state.store_personal_authorize_state(
+        github_callback_state.store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=token,
                 flow=FlowKind.PERSONAL_INSTALL,
@@ -354,7 +353,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
         return Response(
             {
-                "install_url": personal_state.github_app_install_url(state),
+                "install_url": github_app_install_url(state),
                 "connect_flow": "app_install",
             }
         )
@@ -369,14 +368,18 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         installation_id = str(serializer.validated_data["installation_id"])
         user = self._get_user()
-        github_callback_state.store_personal_manage_callback_state(user.id, installation_id)
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_UPDATE,
+                user_id=user.id,
+                installation_id=installation_id,
+                next_url=PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+            ),
+        )
         return Response(status=204)
 
-
-@require_http_methods(["GET"])
-def github_link_complete(request: HttpRequest):
-    """GitHub User OAuth redirect_uri entrypoint — delegates to the shared callback router."""
-    return handle_oauth_redirect(request)
 
 def _resolve_team_for_github_start(user: User, request: Request):
     """Resolve which team to use for team-level GitHub install discovery.
@@ -478,7 +481,7 @@ def _attempt_app_oauth_fast_path(
         return None
     if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
         return None
-    github_callback_state.store_personal_authorize_state(
+    github_callback_state.store_unified_authorize_state(
         GitHubAuthorizeState(
             token=token,
             flow=FlowKind.PERSONAL_OAUTH,
@@ -487,9 +490,7 @@ def _attempt_app_oauth_fast_path(
             connect_from=connect_from,
         ),
     )
-    return Response(
-        {"install_url": personal_state.github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"}
-    )
+    return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
 
 
 def _serialize_github_integration(

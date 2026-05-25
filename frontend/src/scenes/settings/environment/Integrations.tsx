@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { PropsWithChildren, useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -57,11 +56,9 @@ const OAuthIntegration = ({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const baseNext = next ?? urls.settings('environment-integrations')
-    const authorizeNext =
-        kind === 'github' && currentTeam?.id ? combineUrl(baseNext, { project_id: currentTeam.id }).url : baseNext
+    const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: authorizeNext,
+        next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,
         kind,
     })
 

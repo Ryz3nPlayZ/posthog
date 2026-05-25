@@ -1,15 +1,19 @@
 from typing import cast
+from urllib.parse import parse_qs, urlencode
 
 from django.core.cache import cache
 from django.http import HttpRequest
+from django.utils.crypto import get_random_string
 
 import requests
 import structlog
 
-from posthog.api.github_callback import personal_state, state
+from posthog.api.github_callback import state
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
     github_oauth_redirect_uri,
     is_valid_github_installation_id,
 )
@@ -22,6 +26,11 @@ from posthog.models.user_integration import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _github_state_token(state_raw: str) -> str:
+    state_params = parse_qs(state_raw)
+    return state_params["token"][0] if "token" in state_params else state_raw
 
 
 def finish_personal(request: HttpRequest) -> FinishResult:
@@ -39,61 +48,87 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     if not code or not state_raw:
         return _error("missing_params")
 
-    token = personal_state.github_state_token(state_raw)
+    token = _github_state_token(state_raw)
     authorize_state = state.consume_authorize_state(token, user_id=user.id)
     if authorize_state is None:
         return _error("invalid_state")
 
     connect_from_value = authorize_state.connect_from
     flow = authorize_state.flow
-    oauth_flow = flow == FlowKind.PERSONAL_OAUTH
-    oauth_discover_flow = flow == FlowKind.OAUTH_DISCOVER
-    team_oauth_flow = flow == FlowKind.TEAM_OAUTH
-    team_oauth_team_id = authorize_state.team_id
-    team_oauth_next = authorize_state.next_url
     installation_ids: list[str] = []
 
-    if oauth_flow:
-        installation_id = authorize_state.installation_id
-        if not installation_id:
-            return _error("missing_params")
-        if not Integration.objects.filter(
-            kind="github", integration_id=installation_id, team__in=user.teams.all()
-        ).exists():
-            return _error("invalid_installation")
-        installation_ids = [installation_id]
-    elif team_oauth_flow:
-        installation_id = authorize_state.installation_id
-        if not installation_id:
-            return _error("missing_params")
-        if team_oauth_team_id is None:
-            return _error("invalid_state")
-        if not user.teams.filter(id=team_oauth_team_id).exists():
-            return _error("invalid_team")
-        installation_ids = [installation_id]
-    elif oauth_discover_flow:
-        pass
-    else:
-        installation_id = request.GET.get("installation_id")
-        if not installation_id:
-            return _error("missing_params")
-        installation_ids = [installation_id]
+    match flow:
+        case FlowKind.PERSONAL_OAUTH:
+            installation_id = authorize_state.installation_id
+            if not installation_id:
+                return _error("missing_params")
+            if not Integration.objects.filter(
+                kind="github", integration_id=installation_id, team__in=user.teams.all()
+            ).exists():
+                return _error("invalid_installation")
+            installation_ids = [installation_id]
+        case FlowKind.TEAM_OAUTH:
+            installation_id = authorize_state.installation_id
+            if not installation_id:
+                return _error("missing_params")
+            if authorize_state.team_id is None:
+                return _error("invalid_state")
+            if not user.teams.filter(id=authorize_state.team_id).exists():
+                return _error("invalid_team")
+            installation_ids = [installation_id]
+        case FlowKind.OAUTH_DISCOVER:
+            pass
+        case _:
+            installation_id = request.GET.get("installation_id")
+            if not installation_id:
+                return _error("missing_params")
+            installation_ids = [installation_id]
 
-    if oauth_flow or oauth_discover_flow or team_oauth_flow:
+    if flow.is_oauth_redirect:
         authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
         return _error("exchange_failed")
 
-    if oauth_discover_flow:
+    if flow.discovers_installations:
         try:
-            installation_ids = personal_state.github_user_installation_ids(authorization.access_token)
+            response = requests.get(
+                "https://api.github.com/user/installations",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {authorization.access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                params={"per_page": 100},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.warning("github_link: failed to list user installations", status_code=response.status_code)
+                raise requests.RequestException(f"Unexpected status {response.status_code} listing user installations")
+            installations = response.json().get("installations", [])
+            installation_ids = []
+            if isinstance(installations, list):
+                for installation in installations:
+                    if isinstance(installation, dict) and installation.get("id") is not None:
+                        installation_ids.append(str(installation["id"]))
         except requests.RequestException:
             return _error("installation_fetch_failed")
         if not installation_ids:
-            redirect = personal_state.redirect_to_github_app_install(user, connect_from_value)
-            return FinishResult(redirect_kind="oauth_url", oauth_url=redirect.url)
+            token = get_random_string(48)
+            state_query = urlencode({"token": token, "source": "user_integration"})
+            state.store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token=token,
+                    flow=FlowKind.PERSONAL_INSTALL,
+                    user_id=user.id,
+                    connect_from=connect_from_value,
+                ),
+            )
+            return FinishResult(
+                redirect_kind="oauth_url",
+                oauth_url=github_app_install_url(state_query),
+            )
 
     for installation_id in installation_ids:
         if not is_valid_github_installation_id(installation_id):
@@ -101,7 +136,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
     for installation_id in installation_ids:
         installation_id = str(installation_id)
-        if not oauth_discover_flow:
+        if not flow.discovers_installations:
             try:
                 has_access = GitHubIntegration.verify_user_installation_access(
                     installation_id, authorization.access_token
@@ -131,17 +166,17 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
         user_github_integration_from_installation(user, installation_access, authorization)
 
-    if team_oauth_flow and team_oauth_team_id is not None:
+    if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])
         try:
             team_integration = GitHubIntegration.integration_from_installation_id(
-                installation_id, team_oauth_team_id, user
+                installation_id, authorize_state.team_id, user
             )
         except (GitHubInstallationAccessFetchError, requests.RequestException):
             logger.warning(
                 "github_link: failed to create team integration",
                 installation_id=installation_id,
-                team_id=team_oauth_team_id,
+                team_id=authorize_state.team_id,
                 exc_info=True,
             )
             return _error("integration_create_failed")
@@ -151,7 +186,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
         return FinishResult(
             redirect_kind="team_oauth_success",
-            next_url=team_oauth_next,
+            next_url=authorize_state.next_url,
             installation_id=installation_id,
             integration_id=str(team_integration.id),
         )
