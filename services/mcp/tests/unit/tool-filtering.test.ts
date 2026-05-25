@@ -652,7 +652,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
             ])
         )
-        expect(flags).toHaveLength(6)
+        expect(flags).toHaveLength(7)
     })
 
     // Test the filtering logic with a direct unit test approach using
