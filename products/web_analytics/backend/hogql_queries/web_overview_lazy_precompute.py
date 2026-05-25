@@ -36,11 +36,6 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 
 _FAMILY = "web_overview"
 
-# TTL aligned with `93dae1806f4 feat(web-analytics): set uniform 2-hour TTL` —
-# 2h is short enough that an eager-warmed dashboard sees fresh data within one
-# refresh cycle, long enough that the DAG's freshness-skip catches most cycles.
-INSERT_TTL_SECONDS = 2 * 60 * 60
-
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 

@@ -361,9 +361,8 @@ def get_eager_enrolled_team_ids() -> set[int]:
     Sourced from Constance settings:
       eager_set = (AUTO_SELECTED ∪ FORCED) - BLOCKED
 
-    AUTO_SELECTED is written by the Dagster team-selection op
-    (`web_analytics_eager_from_lazy_usage`) and refreshed each cycle.
-    FORCED/BLOCKED are admin overrides.
+    AUTO_SELECTED is written by the Dagster `web_analytics_eager_precompute_team_selection`
+    asset and refreshed daily. FORCED/BLOCKED are admin overrides.
     """
     from posthog.models.instance_setting import get_instance_setting
 

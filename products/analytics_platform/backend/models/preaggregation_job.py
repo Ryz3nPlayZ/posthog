@@ -39,10 +39,10 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
             models.Index(fields=["team_id", "status"]),
             models.Index(fields=["team_id", "time_range_start", "time_range_end"]),
             models.Index(fields=["team_id", "expires_at"]),
-            # Supports the eager precompute team-selection query in
-            # `web_analytics_eager_from_lazy_usage`, which scans the last N
-            # days of jobs grouped by team. Without this index the scan
-            # degrades into a full table read once the table grows large.
+            # Supports the eager precompute team-selection scan in
+            # `_select_eager_teams` (filters `created_at >= now - lookback`,
+            # distinct team_id). Without this index the scan degrades into a
+            # full table read once the table grows large.
             models.Index(fields=["created_at"]),
         ]
 
