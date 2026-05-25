@@ -482,6 +482,29 @@ class TestSyncCanonicalSkills(BaseTest):
             team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
         ).exists()
 
+    def test_prune_leaves_team_authored_scout_skills_alone(self) -> None:
+        # A team hand-authors its own `signals-scout-*` skill — no `seeded_by` tag, and not in
+        # the canonical fleet. Prune must NOT tombstone it: we only reap rows we seeded, never a
+        # user-defined scout that happens to share the reserved prefix.
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+        team_authored = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-custom",
+            description="team's own scout",
+            body="custom body",
+            is_latest=True,
+        )
+
+        with self._patch_canonicals((alpha,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert "signals-scout-custom" not in result.pruned_skill_names
+        team_authored.refresh_from_db()
+        assert team_authored.deleted is False
+        assert team_authored.is_latest is True
+
     def test_does_not_prune_when_disk_read_is_empty(self) -> None:
         # Defensive: a broken / empty canonical dir must NOT tombstone the whole fleet, even
         # with prune on. The `not canonicals` early-return guards this — an empty discover

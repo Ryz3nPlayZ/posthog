@@ -466,15 +466,29 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
         # otherwise leave orphaned live rows the coordinator keeps sampling. Soft-delete them —
         # never hard-delete (run history + audit). The `not canonicals` early-return above
         # means a broken/empty disk read can't reach here and tombstone the whole fleet.
+        #
+        # Restrict to rows WE seeded (`metadata.seeded_by == "signals_scout_harness"`, stamped by
+        # `_create_skill_from_canonical` / `_update_skill_from_canonical`). A team is free to
+        # hand-author its own `signals-scout-*` skill; pruning by name+prefix alone would
+        # silently soft-delete it every coordinator tick. We only reap our own seeded orphans.
         canonical_names = {c.name for c in canonicals}
         orphan_names = list(
-            LLMSkill.objects.filter(team=team, deleted=False, name__startswith=SIGNALS_SCOUT_SKILL_PREFIX)
+            LLMSkill.objects.filter(
+                team=team,
+                deleted=False,
+                name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+                metadata__seeded_by="signals_scout_harness",
+            )
             .exclude(name__in=canonical_names)
             .values_list("name", flat=True)
             .distinct()
         )
         for name in orphan_names:
-            LLMSkill.objects.filter(team=team, name=name, deleted=False).update(deleted=True, is_latest=False)
+            # Re-scope the soft-delete to seeded rows too, so a team-authored row sharing the
+            # name is never caught by the bulk update.
+            LLMSkill.objects.filter(
+                team=team, name=name, deleted=False, metadata__seeded_by="signals_scout_harness"
+            ).update(deleted=True, is_latest=False)
             pruned.append(name)
 
     if created or updated or backfilled or pruned:
