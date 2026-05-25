@@ -4613,7 +4613,7 @@
         }
     },
     "signals-scout-emit-signal": {
-        "description": "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag.",
+        "description": "Fire `emit_signal` with `source_product = signals_scout`, creating the downstream `Signal` / `SignalReport` rows for the inbox. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Emit a finding for a run",
@@ -4658,7 +4658,7 @@
         }
     },
     "signals-scout-runs-retrieve": {
-        "description": "Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "description": "Return the full `SignalScoutRun` row: `run_id`, `skill_name`, `skill_version`, `status`, `started_at` / `completed_at` (from the linked TaskRun), the `task_id` / `task_run_id` / `task_url` deep-links, and the end-of-run `summary`. Emitted findings are separate `Signal` / `SignalReport` rows, not fields on this row. Strictly team-scoped — a UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get a scout run by ID",

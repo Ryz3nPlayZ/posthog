@@ -4512,6 +4512,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4
+     */
+    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
+
+
+    export const AutonomyPriorityEnum = {
+      P0: 'P0',
+      P1: 'P1',
+      P2: 'P2',
+      P3: 'P3',
+      P4: 'P4',
+    } as const;
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -13436,24 +13454,6 @@ export namespace Schemas {
       entity_id?: string | null;
     }
 
-    /**
-     * * `P0` - P0
-    * `P1` - P1
-    * `P2` - P2
-    * `P3` - P3
-    * `P4` - P4
-     */
-    export type SignalsScoutSeverityEnum = typeof SignalsScoutSeverityEnum[keyof typeof SignalsScoutSeverityEnum];
-
-
-    export const SignalsScoutSeverityEnum = {
-      P0: 'P0',
-      P1: 'P1',
-      P2: 'P2',
-      P3: 'P3',
-      P4: 'P4',
-    } as const;
-
     export interface TimeRange {
       /** ISO-8601 inclusive lower bound for the finding's window. */
       date_from: string;
@@ -13496,7 +13496,7 @@ export namespace Schemas {
       * `P2` - P2
       * `P3` - P3
       * `P4` - P4 */
-      severity?: SignalsScoutSeverityEnum | null;
+      severity?: AutonomyPriorityEnum | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
       /** Optional time window the finding refers to. */
@@ -32942,6 +32942,33 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.recent_activity.by_scope`.
+     */
+    export interface ScopeActivityEntry {
+      /** Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`. */
+      scope: string;
+      /** Total activity-log entries for this scope in the window (write velocity). */
+      edits: number;
+      /** Distinct users who edited this scope in the window. */
+      users: number;
+      /**
+         * ISO-8601 timestamp of the most recent edit in the window.
+         * @nullable
+         */
+      last_edit: string | null;
+    }
+
+    /**
+     * `inventory.recent_activity` — per-scope counts off the activity log.
+     */
+    export interface RecentActivity {
+      /** Lookback window in days the per-scope counts cover. */
+      window_days: number;
+      /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
+      by_scope: ScopeActivityEntry[];
+    }
+
+    /**
      * One row in `inventory.recent_dashboards`.
      */
     export interface RecentDashboardEntry {
@@ -32964,6 +32991,293 @@ export namespace Schemas {
          * @nullable
          */
       created_at: string | null;
+    }
+
+    /**
+     * One row in `inventory.recent_surveys.recent`.
+     */
+    export interface RecentSurveyEntry {
+      /** Survey UUID — pass to `survey-get` for full question shape. */
+      id: string;
+      /** Survey name (may be blank if unnamed). */
+      name: string;
+      /** Survey mode: `popover`, `widget`, `external_survey`, or `api`. */
+      type: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_surveys` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentSurveys {
+      /** Total surveys on the team. */
+      total_count: number;
+      /** Surveys that are live (not archived, started, and not yet ended). */
+      active_count: number;
+      /** The 5 most recently updated surveys. */
+      recent: RecentSurveyEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_feature_flags.recent`.
+     */
+    export interface RecentFeatureFlagEntry {
+      /** Feature flag ID. */
+      id: number;
+      /** Flag key used in code (`posthog.isFeatureEnabled('<key>')`). */
+      key: string;
+      /** Human-set description; falls back to the key when blank. */
+      name: string;
+      /** Whether the flag is currently evaluating (a user could be hitting it). */
+      active: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentFeatureFlags {
+      /** Total non-deleted feature flags on the team. */
+      total_count: number;
+      /** Flags currently evaluating (`active=true`). */
+      active_count: number;
+      /** The 5 most recently updated non-deleted flags. */
+      recent: RecentFeatureFlagEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_experiments.recent`.
+     */
+    export interface RecentExperimentEntry {
+      /** Experiment ID. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.
+         * @nullable
+         */
+      feature_flag_key: string | null;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified.
+     */
+    export interface RecentExperiments {
+      /** Total experiments on the team. */
+      total_count: number;
+      /** Experiments currently running (started, not ended, not archived). */
+      running_count: number;
+      /** The 5 most recently updated experiments. */
+      recent: RecentExperimentEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_alerts.recent`.
+     */
+    export interface RecentAlertEntry {
+      /** Alert configuration UUID. */
+      id: string;
+      /** Alert name. */
+      name: string;
+      /** Whether the alert is currently armed. */
+      enabled: boolean;
+      /** Alert state (e.g. `not_firing`, `firing`). */
+      state: string;
+      /**
+         * How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.
+         * @nullable
+         */
+      calculation_interval: string | null;
+      /**
+         * ID of the insight the alert watches; null if none.
+         * @nullable
+         */
+      insight_id: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created.
+     */
+    export interface RecentAlerts {
+      /** Total insight alerts on the team. */
+      total_count: number;
+      /** Alerts currently armed (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently created alerts. */
+      recent: RecentAlertEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_functions.recent`.
+     */
+    export interface RecentHogFunctionEntry {
+      /** Hog function UUID. */
+      id: string;
+      /** Hog function name. */
+      name: string;
+      /**
+         * Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.
+         * @nullable
+         */
+      type: string | null;
+      /**
+         * Function kind sub-classifier; null if unset.
+         * @nullable
+         */
+      kind: string | null;
+      /** Whether the function is currently enabled. */
+      enabled: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFunctions {
+      /** Total non-deleted hog functions on the team. */
+      total_count: number;
+      /** Hog functions currently enabled (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently updated hog functions. */
+      recent: RecentHogFunctionEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_flows.recent`.
+     */
+    export interface RecentHogFlowEntry {
+      /** Hog flow UUID. */
+      id: string;
+      /** Hog flow name. */
+      name: string;
+      /** Flow lifecycle state (e.g. `draft`, `active`, `archived`). */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFlows {
+      /** Total hog flows on the team. */
+      total_count: number;
+      /** Hog flows that are not archived. */
+      active_count: number;
+      /** The 5 most recently updated hog flows. */
+      recent: RecentHogFlowEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_notebooks.recent`.
+     */
+    export interface RecentNotebookEntry {
+      /** Notebook short ID — pass to the notebooks API to open it. */
+      short_id: string;
+      /** Notebook title (may be blank if untitled). */
+      title: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      last_modified_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_notebooks` — total + the 5 most recently modified.
+     */
+    export interface RecentNotebooks {
+      /** Total non-deleted notebooks on the team. */
+      total_count: number;
+      /** The 5 most recently modified notebooks. */
+      recent: RecentNotebookEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_cohorts.recent`.
+     */
+    export interface RecentCohortEntry {
+      /** Cohort ID. */
+      id: number;
+      /** Cohort name. */
+      name: string;
+      /** True for a one-shot snapshot cohort; false for a dynamic-filter cohort. */
+      is_static: boolean;
+      /**
+         * Membership size when last calculated; null if never calculated.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_cohorts` — total + the 5 most recently created.
+     */
+    export interface RecentCohorts {
+      /** Total non-deleted cohorts on the team. */
+      total_count: number;
+      /** The 5 most recently created cohorts. */
+      recent: RecentCohortEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_actions.recent`.
+     */
+    export interface RecentActionEntry {
+      /** Action ID. */
+      id: number;
+      /** Action name. */
+      name: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_actions` — total + the 5 most recently modified.
+     */
+    export interface RecentActions {
+      /** Total non-deleted actions on the team. */
+      total_count: number;
+      /** The 5 most recently updated actions. */
+      recent: RecentActionEntry[];
     }
 
     /**
@@ -33015,27 +33329,27 @@ export namespace Schemas {
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
-      recent_activity: unknown;
+      recent_activity: RecentActivity;
       /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
       recent_dashboards: RecentDashboardEntry[];
-      /** Surveys orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated surveys with `id`, `name`, `type`, `status` (draft / running / stopped / archived), and `updated_at`. */
-      recent_surveys: unknown;
-      /** Feature flag orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated non-deleted flags with `id`, `key`, `name`, `active`, and `updated_at`. */
-      recent_feature_flags: unknown;
-      /** Experiment orientation: `{total_count, active_count, recent: [...]}`. The feature_flag key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
-      recent_experiments: unknown;
-      /** Alert orientation: `{total_count, active_count, recent: [...]}` covering the 5 most recently updated alerts with their state and threshold metadata. */
-      recent_alerts: unknown;
-      /** Hog function orientation: `{total_count, active_count, recent: [...]}` for destinations / transformations the team has wired up via the CDP pipelines. */
-      recent_hog_functions: unknown;
-      /** Hog flow orientation: `{total_count, active_count, recent: [...]}` for the team's currently configured automation flows. */
-      recent_hog_flows: unknown;
-      /** Notebook orientation: `{total_count, recent: [...]}` with the 5 most recently updated notebooks — useful signal for what the team has been investigating. */
-      recent_notebooks: unknown;
-      /** Cohort orientation: `{total_count, recent: [...]}` with the 5 most recently updated cohorts on the team. */
-      recent_cohorts: unknown;
-      /** Action orientation: `{total_count, recent: [...]}` with the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
-      recent_actions: unknown;
+      /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
+      recent_surveys: RecentSurveys;
+      /** Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at. */
+      recent_feature_flags: RecentFeatureFlags;
+      /** Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
+      recent_experiments: RecentExperiments;
+      /** Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata. */
+      recent_alerts: RecentAlerts;
+      /** Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines. */
+      recent_hog_functions: RecentHogFunctions;
+      /** Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows. */
+      recent_hog_flows: RecentHogFlows;
+      /** Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating. */
+      recent_notebooks: RecentNotebooks;
+      /** Cohort orientation: total + the 5 most recently created cohorts on the team. */
+      recent_cohorts: RecentCohorts;
+      /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
+      recent_actions: RecentActions;
       /**
          * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
          * @nullable
@@ -35797,7 +36111,26 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: SignalsScoutSeverityEnum | BlankEnum | null;
+      autostart_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      /**
+         * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+         * @nullable
+         */
+      readonly slack_notification_integration_id: number | null;
+      /**
+         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -46381,7 +46714,7 @@ export namespace Schemas {
 
     export type SignalsScoutProjectProfileGetParams = {
     /**
-     * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Concurrent forced rebuilds are still serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
+     * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean;
     };
