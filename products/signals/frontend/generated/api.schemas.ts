@@ -597,27 +597,27 @@ export interface ProjectProfileInventoryApi {
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
-    recent_activity: unknown
+    recent_activity: RecentActivityApi
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
-    /** Surveys orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated surveys with `id`, `name`, `type`, `status` (draft / running / stopped / archived), and `updated_at`. */
-    recent_surveys: unknown
-    /** Feature flag orientation: `{total_count, active_count, recent: [...]}` where `recent` is the 5 most recently updated non-deleted flags with `id`, `key`, `name`, `active`, and `updated_at`. */
-    recent_feature_flags: unknown
-    /** Experiment orientation: `{total_count, active_count, recent: [...]}`. The feature_flag key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
-    recent_experiments: unknown
-    /** Alert orientation: `{total_count, active_count, recent: [...]}` covering the 5 most recently updated alerts with their state and threshold metadata. */
-    recent_alerts: unknown
-    /** Hog function orientation: `{total_count, active_count, recent: [...]}` for destinations / transformations the team has wired up via the CDP pipelines. */
-    recent_hog_functions: unknown
-    /** Hog flow orientation: `{total_count, active_count, recent: [...]}` for the team's currently configured automation flows. */
-    recent_hog_flows: unknown
-    /** Notebook orientation: `{total_count, recent: [...]}` with the 5 most recently updated notebooks — useful signal for what the team has been investigating. */
-    recent_notebooks: unknown
-    /** Cohort orientation: `{total_count, recent: [...]}` with the 5 most recently updated cohorts on the team. */
-    recent_cohorts: unknown
-    /** Action orientation: `{total_count, recent: [...]}` with the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
-    recent_actions: unknown
+    /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
+    recent_surveys: RecentSurveysApi
+    /** Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at. */
+    recent_feature_flags: RecentFeatureFlagsApi
+    /** Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
+    recent_experiments: RecentExperimentsApi
+    /** Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata. */
+    recent_alerts: RecentAlertsApi
+    /** Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines. */
+    recent_hog_functions: RecentHogFunctionsApi
+    /** Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows. */
+    recent_hog_flows: RecentHogFlowsApi
+    /** Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating. */
+    recent_notebooks: RecentNotebooksApi
+    /** Cohort orientation: total + the 5 most recently created cohorts on the team. */
+    recent_cohorts: RecentCohortsApi
+    /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
+    recent_actions: RecentActionsApi
     /**
      * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
      * @nullable
