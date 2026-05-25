@@ -185,22 +185,34 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 ## Eager precompute (cache-warmer-driven, admin-controlled)
 
 Eager precompute is a third lane that shares the lazy execute path but uses a
-distinct rollout mechanism. There is **no new synthesized fan-out job** — the
-existing `cache_warming.py` DAG already replays each enrolled team's actual
-queries from `metrics_query_log_mv` every hour. Eager enrolment unlocks two
-behaviours for those replays:
+distinct rollout mechanism. Two complementary warming sources keep the cache
+populated:
 
-1. The query path's `can_use_eager_precompute` gate accepts the team
-   regardless of the org-FF + per-query opt-in. The cache warmer's
-   reconstructed query then hits `execute_lazy_precomputed_read` →
-   `ensure_precomputed` and populates the lazy cache.
-2. Subsequent real user queries on the same dashboard land on a warm cache.
-   Cache hits are tracked by `WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT{family}`.
+1. **Cache-warmer replay** — `cache_warming.py` already replays each enrolled
+   team's actual queries from `metrics_query_log_mv` every hour. Eager
+   enrolment lets `can_use_eager_precompute` accept those replays without the
+   org-FF + per-query opt-in. Each replay hits
+   `execute_lazy_precomputed_read` → `ensure_precomputed` and populates the
+   lazy cache.
+2. **Baseline warming** — `web_analytics_eager_baseline_warming_job` runs a
+   fixed `last 30d` matrix (overview + InitialReferringDomain / Page /
+   DeviceType breakdowns) once a day for every enrolled team. This is
+   belt-and-suspenders for newly enrolled teams whose query history hasn't
+   yet hit `WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT`, and for the head of the
+   distribution that empirical query-log analysis showed covers ~91% of
+   user-facing web analytics queries.
 
-The only new Dagster artefact is a tiny daily asset
-(`web_analytics_eager_precompute_team_selection`) that refreshes the enrolled
-team list. The asset writes its output to a Constance setting that the cache
-warmer reads.
+Subsequent real user queries on the same dashboard land on a warm cache.
+Cache hits are tracked by `WEB_ANALYTICS_EAGER_PRECOMPUTE_CACHE_HIT{family}`.
+
+Two new Dagster artefacts ride on the same enrolled-team list:
+
+- `web_analytics_eager_precompute_team_selection` (asset, daily 06:00 UTC) —
+  refreshes the enrolled team set written to a Constance setting.
+- `web_analytics_eager_baseline_warming_job` (job + schedule, daily 06:30 UTC) —
+  runs the baseline matrix for every enrolled team via the standard
+  `runner.run()` path. Hits the eager gate for overview; falls through to
+  v2/raw for breakdowns (which still warms the Django response cache).
 
 ### Gating (no FF, no per-query opt-in)
 
@@ -232,12 +244,14 @@ experiment-platform teams too. In practice that is harmless: an experiment-only
 team has no web analytics queries in `metrics_query_log_mv` for the cache
 warmer to replay, so enrolling them is a no-op.
 
-### TTL: 2 hours
+### TTL
 
-`INSERT_TTL_SECONDS = 2 * 60 * 60` (overview). The cache warmer runs hourly,
-which keeps an enrolled team's most-frequent queries comfortably under TTL
-boundaries. If observed staleness regresses, tighten the cache-warming
-schedule rather than adding a parallel eager schedule.
+Eager and lazy share the same `LAZY_TTL_SECONDS` schedule keyed by window age
+(today: 15 min, yesterday: 1 h, last 7 days: 1 day, older: 7 days). The cache
+warmer runs hourly, which keeps an enrolled team's most-frequent queries
+comfortably under their respective TTL boundaries. If observed staleness
+regresses, tighten the cache-warming schedule rather than adding a parallel
+eager schedule.
 
 ### Freshness
 

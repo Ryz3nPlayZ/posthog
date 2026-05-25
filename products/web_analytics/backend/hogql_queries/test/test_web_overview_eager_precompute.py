@@ -10,21 +10,27 @@ The Dagster cache_warming job replays enrolled teams' actual queries from
 opt-in required), call `execute_lazy_precomputed_read` → `ensure_precomputed`,
 and populate the cache. Real user queries then land on the warm cache.
 
-There is no per-team-per-cycle fan-out in this PR — the cache warmer's
-existing replay mechanism is the warming strategy. The new
-`web_analytics_eager_precompute_team_selection` Dagster asset just refreshes
-the AUTO_SELECTED_TEAM_IDS Constance setting once a day.
+Two warming sources keep the eager cache populated:
+* `cache_warming.py` replays the team's actual queries from
+  `metrics_query_log_mv` hourly — those replays land on the eager gate.
+* `web_analytics_eager_baseline_warming_job` runs a fixed `last 30d` matrix
+  (overview + 3 baseline breakdowns) daily, covering the head of the
+  query distribution and onboarding teams without sufficient history yet.
+
+The `web_analytics_eager_precompute_team_selection` asset refreshes the
+AUTO_SELECTED_TEAM_IDS Constance setting daily; both warming sources read it.
 """
 
 from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone as django_timezone
 
-from dagster import build_asset_context
+from dagster import build_asset_context, build_op_context
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -48,7 +54,9 @@ from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute i
 )
 from products.web_analytics.dags.cache_warming import get_teams_enabled_for_web_analytics_cache_warming
 from products.web_analytics.dags.eager_web_analytics_precompute import (
+    _baseline_queries,
     _select_eager_teams,
+    warm_eager_baseline_op,
     web_analytics_eager_precompute_team_selection,
 )
 
@@ -229,3 +237,62 @@ class TestEagerTeamSelection(ClickhouseTestMixin, APIBaseTest):
             override_instance_config("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", []),
         ):
             assert self.team.pk in get_teams_enabled_for_web_analytics_cache_warming()
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestEagerBaselineWarming(ClickhouseTestMixin, APIBaseTest):
+    """Tests for `warm_eager_baseline_op` — the daily fixed-matrix pre-warmer.
+
+    Runs `last 30d` overview + breakdown queries for every enrolled team.
+    `runner.run()` is mocked because exercising the real ClickHouse paths is
+    covered by the lazy precompute integration tests; this suite verifies the
+    op's fan-out logic and failure handling.
+    """
+
+    def _enable_eager(self):
+        return override_instance_config("WEB_ANALYTICS_EAGER_PRECOMPUTE_FORCED_TEAM_IDS", [self.team.pk])
+
+    def test_baseline_matrix_shape(self):
+        """One overview + one stats query per breakdown; date range is `-30d`."""
+        queries = _baseline_queries()
+        assert len(queries) == 4
+        assert queries[0]["kind"] == "WebOverviewQuery"
+        breakdown_kinds = [q.get("breakdownBy") for q in queries[1:]]
+        assert breakdown_kinds == ["InitialReferringDomain", "Page", "DeviceType"]
+        for q in queries:
+            assert q["dateRange"] == {"date_from": "-30d"}
+            assert q["filterTestAccounts"] is True
+            assert q["properties"] == []
+
+    def test_op_skips_when_no_teams_enrolled(self):
+        """No-op fast path: zero enrolled teams → zero runner.run() calls."""
+        with patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner") as get_runner_mock:
+            result = warm_eager_baseline_op(build_op_context())
+        assert result == {"teams": 0, "warmed": 0, "failed": 0}
+        get_runner_mock.assert_not_called()
+
+    def test_op_runs_baseline_for_each_enrolled_team(self):
+        """One runner.run() call per (team, baseline query)."""
+        with (
+            self._enable_eager(),
+            patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner") as get_runner_mock,
+        ):
+            runner_mock = get_runner_mock.return_value
+            result = warm_eager_baseline_op(build_op_context())
+        assert result["teams"] == 1
+        assert result["warmed"] == len(_baseline_queries())
+        assert result["failed"] == 0
+        assert runner_mock.run.call_count == len(_baseline_queries())
+
+    def test_op_continues_when_one_query_fails(self):
+        """A failing runner doesn't poison the rest of the matrix."""
+        with (
+            self._enable_eager(),
+            patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner") as get_runner_mock,
+        ):
+            runner_mock = get_runner_mock.return_value
+            # First call raises, remaining succeed.
+            runner_mock.run.side_effect = [RuntimeError("boom"), None, None, None]
+            result = warm_eager_baseline_op(build_op_context())
+        assert result["warmed"] == 3
+        assert result["failed"] == 1
