@@ -31,8 +31,6 @@ switch + emit posture.
 
 from __future__ import annotations
 
-from django.conf import settings
-
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
@@ -47,25 +45,21 @@ SIGNALS_SCOUT_ROLLOUT_FLAG = "signals-scout"
 def team_passes_rollout_flag(team: Team) -> bool:
     """Per-team check for `SIGNALS_SCOUT_ROLLOUT_FLAG`.
 
-    Targeting is group-evaluated against organization + project. In production we pass
-    `only_evaluate_locally=True` because the conditions we expect to use (project-id
-    allowlist, organization is_internal) are meant to be local-evaluable from the
-    group properties surfaced here — avoiding a flag-eval HTTP roundtrip on every
-    coordinator tick and every `sync_signals_scout_skills` invocation.
+    Targeting is group-evaluated against organization + project, so the flag dashboard
+    can roll out by project-id allowlist or organization/project property conditions.
 
-    In DEBUG (local dev) we flip to remote eval. The local posthoganalytics SDK
-    can't evaluate group-aggregated flags whose targeting condition is
-    "rollout_percentage=100 with no property predicates" purely from the
-    group_properties we pass — it returns `None` (no decision), which the
-    fail-closed wrapper coerces to `False` and silently gates dev teams off the
-    coordinator. One decide call per coordinator tick (every 60 min in prod, 15 min
-    on dev) is negligible cost for the dev unblock; production behavior is
-    unchanged. If a non-local property (cohort membership etc.) ever lands on the
-    flag, flip the production branch to `False` deliberately too.
+    We evaluate remotely (one `decide()` per coordinator tick — every 60 min in prod —
+    which is negligible). Local-only eval was tried and dropped: the local posthoganalytics
+    SDK can't decide group-aggregated flags from just the group_properties we pass — a
+    "rollout 100% with no predicates" condition (the natural full-rollout shape), or any
+    property we didn't pre-surface here, comes back `None`, and the fail-closed wrapper
+    would coerce that `None` to `False`, silently gating *everyone* off at full rollout (or
+    whenever targeting uses an unpassed property). Remote eval sidesteps both.
 
-    Fails closed: any exception (eval failure, missing flag definition,
-    posthoganalytics misconfig) returns `False` so the gate stays an explicit
-    enroll-list rather than a soft default-on.
+    Fails closed: any exception (eval failure, missing flag definition, posthoganalytics
+    misconfig) returns `False` so the gate stays an explicit enroll-list rather than a soft
+    default-on. That covers real failures/outages; a defined flag under remote eval returns a
+    concrete decision, not `None`.
     """
     try:
         return bool(
@@ -80,7 +74,6 @@ def team_passes_rollout_flag(team: Team) -> bool:
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},
                 },
-                only_evaluate_locally=not settings.DEBUG,
                 send_feature_flag_events=False,
             )
         )
