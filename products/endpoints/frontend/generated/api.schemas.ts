@@ -174,6 +174,8 @@ export interface EndpointResponseApi {
     bucket_overrides: EndpointResponseApiBucketOverrides
     /** Column names and types from the query's SELECT clause. */
     columns: EndpointColumnApi[]
+    /** Tag names associated with this endpoint. */
+    tags: string[]
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -242,6 +244,11 @@ export interface EndpointRequestApi {
      * @nullable
      */
     deleted?: boolean | null
+    /**
+     * List of tag names to associate with this endpoint. Replaces any existing tags.
+     * @nullable
+     */
+    tags?: string[] | null
 }
 
 /**
@@ -317,6 +324,8 @@ export interface EndpointVersionResponseApi {
     bucket_overrides: EndpointVersionResponseApiBucketOverrides
     /** Column names and types from the query's SELECT clause. */
     columns: EndpointColumnApi[]
+    /** Tag names associated with this endpoint. */
+    tags: string[]
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */
@@ -391,6 +400,11 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     deleted?: boolean | null
+    /**
+     * List of tag names to associate with this endpoint. Replaces any existing tags.
+     * @nullable
+     */
+    tags?: string[] | null
 }
 
 /**
@@ -798,6 +812,50 @@ export interface PaginatedEndpointVersionResponseListApi {
     /** @nullable */
     previous?: string | null
     results: EndpointVersionResponseApi[]
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export interface EndpointLastExecutionTimesRequestApi {
