@@ -1100,7 +1100,7 @@ class IntegrationViewSet(
         oauth_url = build_team_oauth_authorize_url(
             user_id=cast(User, request.user).id,
             team_id=self.team_id,
-            installation_id=request.data.get("installation_id"),
+            installation_id=str(request.data.get("installation_id") or ""),
             next_url=str(request.data.get("next") or ""),
             connect_from=request.data.get("connect_from")
             if request.data.get("connect_from") == "posthog_code"

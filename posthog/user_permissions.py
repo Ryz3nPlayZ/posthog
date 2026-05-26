@@ -378,10 +378,13 @@ class UserPermissionsSerializerMixin:
 
 
 def user_is_team_admin(user: User, team: Team | int) -> bool:
+    team_obj: Team
     if isinstance(team, int):
         try:
-            team = Team.objects.get(id=team)
+            team_obj = Team.objects.get(id=team)
         except Team.DoesNotExist:
             return False
-    level = UserPermissions(user).team(team).effective_membership_level
+    else:
+        team_obj = team
+    level = UserPermissions(user).team(team_obj).effective_membership_level
     return level is not None and level >= OrganizationMembership.Level.ADMIN

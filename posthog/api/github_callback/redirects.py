@@ -60,10 +60,10 @@ def redirect_from_finish_result(result: FinishResult) -> HttpResponseRedirect:
             "posthog_code": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
         }
         if result.connect_from in app_base_urls:
-            params = {"provider": "github"}
+            app_params = {"provider": "github"}
             if result.error:
-                params["error"] = result.error
-            return _AppDeepLinkRedirect(f"{app_base_urls[result.connect_from]}?{urlencode(params)}")
+                app_params["error"] = result.error
+            return _AppDeepLinkRedirect(f"{app_base_urls[result.connect_from]}?{urlencode(app_params)}")
         if result.error:
             return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={result.error}")
         return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")

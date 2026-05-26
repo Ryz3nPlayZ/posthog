@@ -59,7 +59,7 @@ def resolve_github_setup_callback_context(
         cached = cache.get(unified_authorize_cache_key(str(pending_token)))
         if isinstance(cached, dict):
             token = str(cached.get("token") or "") or None
-            authorize_state = GitHubAuthorizeState.try_from_cache(token or "", cached) if token else None
+            authorize_state = GitHubAuthorizeState.try_from_cache(token, cached) if token else None
             if authorize_state is None:
                 cached_next = str(cached.get("next") or "") or None
                 cached_team_id = team_id_from_next_url(cached_next or "")
