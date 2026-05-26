@@ -9636,6 +9636,14 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "description": "Whether the response was served from the lazy precompute path.",
+                    "type": "boolean"
+                },
+                "usedPreAggregatedTables": {
+                    "description": "Whether the response was served from a precomputed table.",
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -12070,6 +12078,14 @@
                                 "types": {
                                     "items": {},
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "description": "Whether the response was served from the lazy precompute path.",
+                                    "type": "boolean"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "description": "Whether the response was served from a precomputed table.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -29382,6 +29398,14 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "description": "Whether the response was served from the lazy precompute path.",
+                            "type": "boolean"
+                        },
+                        "usedPreAggregatedTables": {
+                            "description": "Whether the response was served from a precomputed table.",
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -30422,6 +30446,14 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "description": "Whether the response was served from the lazy precompute path.",
+                            "type": "boolean"
+                        },
+                        "usedPreAggregatedTables": {
+                            "description": "Whether the response was served from a precomputed table.",
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -39773,6 +39805,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -39834,6 +39870,14 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "description": "Whether the response was served from the lazy precompute path.",
+                    "type": "boolean"
+                },
+                "usedPreAggregatedTables": {
+                    "description": "Whether the response was served from a precomputed table.",
+                    "type": "boolean"
                 }
             },
             "required": ["results"],
