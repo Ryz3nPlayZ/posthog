@@ -13,7 +13,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, PropertyDefinition, Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.subscription import Subscription
-from posthog.text_sanitization import sanitize_core_memory_text, sanitize_user_text
+from posthog.text_sanitization import sanitize_user_text
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.tasks.subscriptions.ai_subscription.prompts import PLAN_GENERATION_PROMPT
@@ -30,28 +30,18 @@ NO_DATA_EVENT_NAMES_LIMIT = 25
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
 
+# MVP default for both the planner and synthesis LLM calls. A single small, cheap model
+# covers both jobs today; split or upgrade if eval results show one stage needs more.
 DEFAULT_PLANNER_MODEL = "gpt-4.1-mini"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1-mini"
-# Wall-clock bound on the planner LLM call; combined with the activity timeout and
-# `max_retries` on `MaxChatOpenAI` (3), prevents a single stuck request from soaking
-# the delivery budget.
+# Wall-clock bound on the planner LLM call so a single stuck request can't soak the
+# caller's delivery budget.
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
-# Whitelist of models a user can opt their subscription into via `ai_config`.
-# Without this, any authenticated user could PATCH `ai_config: {"model": ...}` and
-# force scheduled deliveries to use an arbitrarily expensive model.
-ALLOWED_AI_MODELS = frozenset({"gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.1"})
-
-
-def resolve_ai_model(ai_config: dict | None, key: str, default: str) -> str:
-    requested = (ai_config or {}).get(key)
-    if isinstance(requested, str) and requested in ALLOWED_AI_MODELS:
-        return requested
-    return default
 
 
 # No second-layer regex blocklist: the prompt is summarized back to the same user who
 # wrote it, so injection here is self-targeted. The structural defenses are the
-# `<user_prompt>` framing in the system prompt and `sanitize_core_memory_text` stripping
+# `<user_prompt>` framing in the system prompt and `sanitize_user_text` stripping
 # `<system>`-style markers; layering ad-hoc patterns on top just creates false positives
 # for legitimate phrasings like "ignore null values".
 
@@ -75,7 +65,10 @@ def sanitize_prompt(raw: str | None) -> str:
     if len(raw.strip()) > PROMPT_MAX_LENGTH:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
-    cleaned = sanitize_core_memory_text(raw, max_len=PROMPT_MAX_LENGTH)
+    # `sanitize_user_text` (not the newline-preserving core-memory variant): a report request is a
+    # short single-line instruction, so collapsing newlines is fine, and it additionally strips
+    # generic `<...>` tags — closing the HTML-tag gap the core-memory path leaves open.
+    cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH)
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 
@@ -190,17 +183,15 @@ def generate_query_plan(
     context_blob: str,
     team: Team,
     user: User,
-    ai_config: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> QueryPlan:
     # `user is None` is enforced at the public entry point (`generate_ai_report`)
     # which is the only caller path into here. Don't repeat the check.
-    model_name = resolve_ai_model(ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
     posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
-        model=model_name,
+        model=DEFAULT_PLANNER_MODEL,
         temperature=0,
         timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
         user=user,
@@ -233,7 +224,6 @@ def build_enriched_prompt(
     user: User,
     prompt: Optional[str],
     window_days: int,
-    ai_config: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
@@ -243,7 +233,6 @@ def build_enriched_prompt(
         context_blob=context_blob,
         team=team,
         user=user,
-        ai_config=ai_config,
         trace_correlation_id=trace_correlation_id,
     )
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)

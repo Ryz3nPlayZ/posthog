@@ -1,18 +1,49 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models import EventDefinition, PropertyDefinition
 
+from ee.tasks.subscriptions.ai_subscription.schemas import QueryPlan, QueryPlanStep
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
+    PROMPT_MAX_LENGTH,
+    PromptRejectedError,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
     build_context_blob,
+    generate_query_plan,
+    sanitize_prompt,
 )
 
 _SG = "ee.tasks.subscriptions.ai_subscription.spec_generator"
+
+
+class TestSanitizePrompt:
+    """`sanitize_prompt` is the public input-validation gate, so its three reject branches and the
+    tag-stripping behaviour are pinned explicitly — a dropped branch would silently admit bad input."""
+
+    @pytest.mark.parametrize("raw", [None, "", "   ", "\n\t "])
+    def test_rejects_empty_or_whitespace(self, raw: str | None) -> None:
+        with pytest.raises(PromptRejectedError, match="empty"):
+            sanitize_prompt(raw)
+
+    def test_rejects_over_max_length(self) -> None:
+        with pytest.raises(PromptRejectedError, match="exceeds"):
+            sanitize_prompt("x" * (PROMPT_MAX_LENGTH + 1))
+
+    def test_rejects_prompt_that_is_only_framing_tags(self) -> None:
+        # sanitize_user_text strips the framing markers, leaving nothing → empty rejection.
+        with pytest.raises(PromptRejectedError, match="empty"):
+            sanitize_prompt("<system></system>")
+
+    def test_strips_html_tags_from_valid_prompt(self) -> None:
+        assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
+
+    def test_returns_cleaned_prompt(self) -> None:
+        assert sanitize_prompt("  Weekly pageviews summary  ") == "Weekly pageviews summary"
 
 
 class TestNoDataEventNames(APIBaseTest):
@@ -78,3 +109,39 @@ class TestContextBlob(APIBaseTest):
         assert "plan" in blob
         assert "Group/account types (reference as group_<index>.properties.<name>" in blob
         assert "group_0 = organization" in blob
+
+
+class TestGenerateQueryPlanSubstitution(APIBaseTest):
+    """Test the substitution *behaviour* — that the planner actually receives the prompt and context
+    interpolated into the template — rather than asserting prose fragments exist in the prompt string.
+    Prompt *quality* (do the guardrails work?) belongs in an LLM eval, not a unit test."""
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_substitutes_prompt_and_context_into_system_message(self, mock_chat: object) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="intent",
+            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
+        )
+
+        generate_query_plan(
+            cleaned_prompt="CLEANED_PROMPT_MARKER",
+            context_blob="CONTEXT_BLOB_MARKER",
+            team=self.team,
+            user=self.user,
+        )
+
+        (messages,) = structured.invoke.call_args[0]
+        (_role, system_content) = messages[0]
+        assert "CLEANED_PROMPT_MARKER" in system_content
+        assert "CONTEXT_BLOB_MARKER" in system_content
+        # The template's `{{{...}}}` placeholders must be gone — proving substitution ran.
+        assert "{{{" not in system_content
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_rejects_malformed_planner_output(self, mock_chat: object) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = "not a QueryPlan"
+
+        with pytest.raises(PromptRejectedError, match="malformed"):
+            generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)

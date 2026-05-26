@@ -1,0 +1,23 @@
+{% extends "email/base.html" %}
+
+{% block heading %}{{ title }}{% endblock %}
+
+{% block section %}
+
+{% comment %}
+rendered_html is markdown rendered by markdown-it-py (html=False) and then sanitized with nh3 to an
+allowlist of tags in ee/tasks/subscriptions/ai_subscription/delivery.py:render_ai_email_html, so raw
+HTML in the report source is already stripped before it reaches this template.
+{% endcomment %}
+{# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
+{{ rendered_html|safe }}
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ subscription_url }}">Manage subscription</a>
+</div>
+
+<p class="text-center text-muted">
+    <a href="{{ unsubscribe_url }}">Unsubscribe from this report</a>
+</p>
+
+{% endblock %}

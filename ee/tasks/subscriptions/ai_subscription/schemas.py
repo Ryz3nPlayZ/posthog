@@ -9,24 +9,34 @@ class QueryPlanStep(BaseModel):
     MVP supports only HogQL; typed Trends/Funnels/Retention queries are a follow-up.
     """
 
-    description: str = Field(..., description="One-sentence rationale for running this query.")
+    description: str = Field(..., max_length=500, description="One-sentence rationale for running this query.")
     query_type: Literal["hogql"] = Field("hogql", description="MVP: always 'hogql'.")
-    hogql: str = Field(..., description="A HogQL SELECT statement scoped to the team's events.")
-    time_window_days: int = Field(7, ge=1, le=365)
+    # The query carries its own timeframe in the HogQL `WHERE timestamp >= …` clause; there is no
+    # separate per-step window field, which would just be a second source of truth the executor ignores.
+    hogql: str = Field(..., max_length=5000, description="A HogQL SELECT statement scoped to the team's events.")
 
 
 class QueryPlan(BaseModel):
     """A short, bounded plan of queries that answer the user's prompt."""
 
-    overall_intent: str = Field(..., description="Plain-English summary of what the report will tell the user.")
-    # Cap at 3 (was 5). Each step adds up to ~4 min wall-clock under worst-case
-    # retries, and 3 well-chosen queries cover almost any report. Bumping back up
-    # is a one-line change if real prompts turn out to need more headroom.
+    overall_intent: str = Field(
+        ...,
+        max_length=500,
+        description="Plain-English summary of what the report will tell the user.",
+    )
+    # Three well-chosen queries cover almost any report while keeping worst-case wall-clock
+    # (each step can retry) inside the caller's delivery budget.
     steps: list[QueryPlanStep] = Field(..., min_length=1, max_length=3)
 
 
 class EnrichedPromptSpec(BaseModel):
-    """Everything the synthesis step needs to write the final markdown report."""
+    """Everything the synthesis step needs to write the final markdown report.
+
+    Built and consumed entirely within ``generate_ai_report`` — it never crosses a Temporal activity
+    boundary, so it isn't subject to the ~2 MiB payload limit. Only the final (short, ~400-word)
+    markdown report and the subscription id flow back through the workflow. The field caps above keep
+    the in-process spec bounded regardless.
+    """
 
     cleaned_prompt: str
     context_blob: str

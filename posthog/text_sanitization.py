@@ -1,3 +1,13 @@
+"""Single source of truth for sanitizing user-controlled text before it enters an LLM prompt.
+
+Hand-rolled rather than pulled from a package because the core job is PostHog-specific: stripping the
+exact framing markers our prompts use (``<system>``, ``<user_prompt>``, ``<query_results>``, …) so a
+crafted event name or prompt can't break out of its envelope and inject instruction-shaped text. No
+off-the-shelf library knows our tag vocabulary, and a general HTML sanitizer wouldn't strip the
+zero-width / invisible Unicode smuggling vectors handled here. Keep this the only copy — duplicating it
+lets the marker list drift, which is the one thing that must not happen to an injection defense.
+"""
+
 from __future__ import annotations
 
 import re
@@ -19,9 +29,9 @@ _LLM_MARKER_RE = re.compile(
     r"</?\s*(?:"
     r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
     # AI subscription synthesis prompt framing tags — sanitize so a crafted event name
-    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<query_results>`
-    # envelope and inject instruction-shaped content into the LLM context.
-    r"|user_prompt|project_context|query_results"
+    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<plan_intent>` /
+    # `<query_results>` envelope and inject instruction-shaped content into the LLM context.
+    r"|user_prompt|project_context|plan_intent|query_results"
     r")\b[^>]*>?",
     re.IGNORECASE,
 )

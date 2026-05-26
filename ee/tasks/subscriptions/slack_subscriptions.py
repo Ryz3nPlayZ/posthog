@@ -272,17 +272,18 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
             await asyncio.sleep(wait_time)
 
 
-async def send_slack_message_with_integration_async(
+async def deliver_slack_message_data(
     integration: Integration,
     subscription: Subscription,
-    assets: list[ExportedAsset],
-    total_asset_count: int,
-    is_new_subscription: bool = False,
-    change_summary: str | None = None,
+    message_data: SlackMessageData,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(
-        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
-    )
+    """Send an already-rendered ``SlackMessageData`` (main message + thread messages) over the async
+    client with per-message retry, tracking partial thread failures.
+
+    This is the shared send mechanism: callers inject *what* to send by building the ``SlackMessageData``
+    (insight-asset blocks, AI-report markdown, …); the session, retry, and partial-failure handling are
+    identical regardless of how the body was rendered.
+    """
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
@@ -294,7 +295,7 @@ async def send_slack_message_with_integration_async(
             blocks=message_data.blocks,
             text=message_data.title,
         )
-        logger.info("send_slack_message_with_integration_async.main_message_sent", subscription_id=subscription.id)
+        logger.info("deliver_slack_message_data.main_message_sent", subscription_id=subscription.id)
 
         thread_ts = message_res.get("ts")
         failed_thread_messages = []
@@ -311,7 +312,7 @@ async def send_slack_message_with_integration_async(
                 except Exception as e:
                     # Thread message failed, continue with others
                     logger.error(
-                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
+                        "deliver_slack_message_data.slack_thread_message_failed_after_retries",
                         subscription_id=subscription.id,
                         channel=message_data.channel,
                         thread_index=idx,
@@ -327,3 +328,17 @@ async def send_slack_message_with_integration_async(
         total_thread_messages=len(message_data.thread_messages),
         failed_thread_message_indices=failed_thread_messages,
     )
+
+
+async def send_slack_message_with_integration_async(
+    integration: Integration,
+    subscription: Subscription,
+    assets: list[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
+    change_summary: str | None = None,
+) -> SlackDeliveryResult:
+    message_data = _prepare_slack_message(
+        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
+    )
+    return await deliver_slack_message_data(integration, subscription, message_data)
