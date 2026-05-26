@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { useLatest } from '../../core/hooks/useLatest'
 
-/** Mid-tween restarts from the currently-displayed value (no snap). */
-export function useTweenNumber(target: number, duration = 350): number {
+/** When `target` changes mid-animation, animation restarts from the currently-displayed value (no snap). */
+export function useAnimatedNumber(target: number, duration = 350): number {
     const [value, setValue] = useState(target)
     const valueRef = useLatest(value)
 

@@ -72,25 +72,20 @@ function GoalLine() {
 </LineChart>
 ```
 
-## MetricTile, Sparkline, and SparklineSummary
+## Sparkline and Metric
 
-Three layers compose into the metric tile.
+Two layers, both exported from `lib/hog-charts`.
 
-- `MetricTile` — presentational card (title, big value, optional comparison
-  pill, subtitle, and a viz slot). No state, no chart imports. Drop in any
-  pre-resolved headline and an optional `delta`; omit the children to get a
-  number-only tile.
 - `Sparkline` — axis-less line+area preset over `LineChart`. Exposes
   `onHoverIndexChange` so consumers can drive a hover-following headline
   without subscribing to `useChartHover` directly.
-- `SparklineSummary` — `MetricTile` + `Sparkline` wired together. Owns the
-  hover state and the headline tween. Supports a resting `value` override and
-  a fixed `change` pill for consumers whose aggregate doesn't match
-  `data[last]`.
+- `Metric` — dashboard tile: title, big value, optional comparison pill,
+  subtitle, and an embedded sparkline when `data` is passed. Owns the hover
+  state and the headline animation. Omit `data` for a number-only tile.
 
 ```tsx
-import { SparklineSummary } from 'lib/hog-charts'
-;<SparklineSummary
+import { Metric } from 'lib/hog-charts'
+;<Metric
   title="Total Revenue"
   data={[4200, 5100, 4700, /* … */ 8800]}
   labels={['Jan', 'Feb', 'Mar', /* … */ 'Dec']}
@@ -99,10 +94,11 @@ import { SparklineSummary } from 'lib/hog-charts'
 />
 ```
 
-When omitted, the change pill compares the current point to the first
-non-zero value in the series. Pass `showChange={false}` to hide it,
-`formatChange` to customize the percentage label, or `change={{ value, label }}`
-to supply a fixed comparison that doesn't update on hover.
+When `data` is present, the change pill defaults to comparing the current
+point to the first non-zero value in the series. Pass `showChange={false}` to
+hide it, `formatChange` to customize the percentage label, or
+`change={{ value, label }}` to supply a fixed comparison that doesn't update
+on hover. For a number-only tile, omit `data` and pass `value` directly.
 
 ## More
 

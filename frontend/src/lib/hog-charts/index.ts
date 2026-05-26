@@ -16,10 +16,8 @@ export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarCha
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
-export { MetricTile } from './components/MetricTile/MetricTile'
-export type { ChangeColor, MetricTileChange, MetricTileProps } from './components/MetricTile/MetricTile'
-export { SparklineSummary } from './components/SparklineSummary/SparklineSummary'
-export type { SparklineSummaryProps } from './components/SparklineSummary/SparklineSummary'
+export { Metric } from './blocks/Metric/Metric'
+export type { ChangeColor, MetricChange, MetricProps } from './blocks/Metric/Metric'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
