@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBell, IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { HealthAlertsEntryPoint } from 'scenes/health-alerts/HealthAlertsEntryPoint'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -31,6 +35,9 @@ export function SdkDoctorScene(): JSX.Element {
         snoozedUntil,
     } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
+    const [alertsModalOpen, setAlertsModalOpen] = useState(false)
 
     const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
@@ -59,6 +66,17 @@ export function SdkDoctorScene(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {healthAlertsEnabled && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() => setAlertsModalOpen(true)}
+                                icon={<IconBell className="size-4" />}
+                                tooltip="Subscribe to alerts when SDKs go outdated"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
                         <LemonButton
                             size="small"
                             type="primary"
@@ -71,6 +89,18 @@ export function SdkDoctorScene(): JSX.Element {
                     </>
                 }
             />
+
+            {healthAlertsEnabled && (
+                <LemonModal
+                    isOpen={alertsModalOpen}
+                    onClose={() => setAlertsModalOpen(false)}
+                    title="SDK Doctor alerts"
+                    description="Get notified when your team has outdated PostHog SDKs."
+                    width="80%"
+                >
+                    <HealthAlertsEntryPoint logicKey="sdk-doctor" presetKinds={['sdk_outdated']} />
+                </LemonModal>
+            )}
 
             {isDev && !inStorybook() && !inStorybookTestRunner() && (
                 <div>

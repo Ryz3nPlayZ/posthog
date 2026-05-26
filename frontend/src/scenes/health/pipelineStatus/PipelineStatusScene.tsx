@@ -1,10 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconBell, IconRefresh } from '@posthog/icons'
+import { LemonModal } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { HealthAlertsEntryPoint } from 'scenes/health-alerts/HealthAlertsEntryPoint'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -27,6 +32,9 @@ export function PipelineStatusScene(): JSX.Element {
     const { loadHealthIssues } = useActions(pipelineHealthLogic)
     const { filteredIssues, filteredIssueCount, isIssueDismissed } = useValues(pipelineStatusSceneLogic)
     const { dismissIssue, undismissIssue } = useActions(pipelineStatusSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
+    const [alertsModalOpen, setAlertsModalOpen] = useState(false)
 
     return (
         <SceneContent>
@@ -38,17 +46,45 @@ export function PipelineStatusScene(): JSX.Element {
                     type: 'pipeline_status',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconRefresh className="size-4" />}
-                        disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
-                        onClick={() => loadHealthIssues()}
-                    >
-                        {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
-                    </LemonButton>
+                    <>
+                        {healthAlertsEnabled && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconBell className="size-4" />}
+                                onClick={() => setAlertsModalOpen(true)}
+                                tooltip="Subscribe to alerts when a pipeline fails"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconRefresh className="size-4" />}
+                            disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
+                            onClick={() => loadHealthIssues()}
+                        >
+                            {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
+                        </LemonButton>
+                    </>
                 }
             />
+
+            {healthAlertsEnabled && (
+                <LemonModal
+                    isOpen={alertsModalOpen}
+                    onClose={() => setAlertsModalOpen(false)}
+                    title="Pipeline status alerts"
+                    description="Get notified when an external data sync or materialized view fails."
+                    width="80%"
+                >
+                    <HealthAlertsEntryPoint
+                        logicKey="pipeline-status"
+                        presetKinds={['external_data_failure', 'materialized_view_failure']}
+                    />
+                </LemonModal>
+            )}
 
             <div className="max-w-3xl space-y-4">
                 {healthIssuesLoading && issues.length === 0 ? (
