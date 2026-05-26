@@ -141,7 +141,9 @@ def consume_github_authorize_state(
     cached_next = str(cached.get("next") or "")
 
     if not state_raw:
-        if code is not None or setup_action != "update":
+        # State-less update callbacks must consume a TEAM_UPDATE pending record — otherwise an
+        # attacker could seed any pending state (e.g. TEAM_INSTALL) and trigger a silent link.
+        if code is not None or setup_action != "update" or cached.get("flow") != FlowKind.TEAM_UPDATE.value:
             raise ValidationError("Invalid or expired state token", code="invalid_state")
         param_next = None
     else:

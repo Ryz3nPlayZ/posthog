@@ -153,8 +153,13 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
 
 
 class IntegrationManager(models.Manager["Integration"]):
+    _queryset_class = IntegrationQuerySet
+
     def get_queryset(self) -> IntegrationQuerySet:
         return IntegrationQuerySet(self.model, using=self._db)
+
+    def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
+        return self.get_queryset().filter(*args, **kwargs)
 
     def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
         return (
@@ -235,7 +240,7 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
-    objects = IntegrationManager()
+    objects: IntegrationManager = IntegrationManager()
 
     class Meta:
         constraints = [

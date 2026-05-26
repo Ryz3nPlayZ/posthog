@@ -50,19 +50,19 @@ def _parse_callback(request: HttpRequest, entry: Literal["setup_url", "oauth_red
 
 
 def _is_personal_github_setup_update(user: User, ctx: CallbackContext) -> bool:
-    if ctx.flow == FlowKind.TEAM_UPDATE:
-        return False
-    if ctx.flow == FlowKind.PERSONAL_UPDATE:
-        return True
+    # When state was present and loaded, trust the flow it encodes. Only the explicit
+    # personal-update flow should route here — any team-side flow (install, update,
+    # oauth recovery) must fall through to finish_team_setup. The UserIntegration
+    # fallback below only applies when state is missing (e.g. user opened GitHub
+    # directly without going through PostHog UI).
+    if ctx.flow is not None:
+        return ctx.flow == FlowKind.PERSONAL_UPDATE
     if not ctx.installation_id:
         return False
-    installation_id_str = str(ctx.installation_id)
-    if state.has_pending_personal_setup_update(user, installation_id_str):
-        return True
     return UserIntegration.objects.filter(
         user=user,
         kind=UserIntegration.IntegrationKind.GITHUB,
-        integration_id=installation_id_str,
+        integration_id=str(ctx.installation_id),
     ).exists()
 
 
@@ -72,6 +72,16 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
 
     if ctx.github_error:
         error_code = "access_denied" if ctx.github_error == "access_denied" else "github_oauth_error"
+        # TEAM_OAUTH recovery failures should land on the project page, not the personal page —
+        # the user was trying to set up a team integration. State is still in cache at this point
+        # (load_authorize_state is read-only), so we have the team_id and next_url to redirect with.
+        if ctx.flow == FlowKind.TEAM_OAUTH and ctx.authorize_state is not None:
+            return FinishResult(
+                redirect_kind="team_setup",
+                next_url=ctx.authorize_state.next_url,
+                team_id=ctx.authorize_state.team_id,
+                error=error_code,
+            )
         if ctx.entry == "oauth_redirect" or is_personal_github_setup_state(ctx.state_raw):
             connect_from = ctx.authorize_state.connect_from if ctx.authorize_state else None
             return FinishResult(redirect_kind="personal_finish", connect_from=connect_from, error=error_code)

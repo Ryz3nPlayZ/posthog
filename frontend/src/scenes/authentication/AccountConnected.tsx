@@ -96,20 +96,28 @@ export const scene: SceneExport<AccountConnectedProps> = {
  * integration (`github-integration`), or team Slack integration (`slack-integration`). Navigates
  * to the matching `posthog-code://…` deep link so the desktop app refreshes its integrations.
  */
+function isValidKind(kind: AccountConnectedKind | undefined): kind is Exclude<AccountConnectedKind, 'invalid'> {
+    return typeof kind === 'string' && (VALID_KINDS as readonly string[]).includes(kind)
+}
+
 export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     const { searchParams } = useValues(router)
     const provider = typeof searchParams.provider === 'string' ? searchParams.provider : undefined
     const label = providerLabel(provider)
     const errorCode = getGithubSetupErrorCode(searchParams)
     const isError = errorCode.length > 0
+    // Allowlist-style check — `paramsToProps` is expected to map unknown kinds to `'invalid'`,
+    // but guarding directly against the valid set means a route mismatch (e.g. project-prefix
+    // edge case) can't crash `posthogCodeDeepUrl` with an undefined deep-link host.
+    const hasValidKind = isValidKind(kind)
 
     useEffect(() => {
-        if (kind !== 'invalid') {
+        if (hasValidKind) {
             window.location.href = posthogCodeDeepUrl(kind, searchParams)
         }
-    }, [kind, searchParams])
+    }, [hasValidKind, kind, searchParams])
 
-    if (kind === 'invalid') {
+    if (!hasValidKind) {
         return (
             <BridgePage view="account-connected">
                 <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
