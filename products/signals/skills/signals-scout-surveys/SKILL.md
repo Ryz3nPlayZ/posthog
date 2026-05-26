@@ -124,12 +124,30 @@ Patterns to watch — starting points, not a checklist.
 
 Surveys with rating questions (NPS 0–10, CSAT 1–5, single rating) are the cleanest
 quantitative signal. For each rating-style active survey, pull the last 30 days of
-`survey sent` events and compute the score trend:
+`survey sent` events and compute the score trend.
+
+**Resolving the response value — coalesce both key schemes.** PostHog writes each
+answer under two property keys and the product reads them with a `coalesce`
+(`getSurveyResponse()` in `frontend/src/scenes/surveys/utils.ts`). Query the same way
+or you will miss responses. Read `survey-get` for the question's `id` **and** its
+position in the `questions` array:
+
+- **id-based** (modern posthog-js): `$survey_response_<question_id>` — the question's UUID.
+- **index-based** (legacy, still emitted): bare `$survey_response` for the first
+  question (index 0), `$survey_response_<n>` (numeric) for question index _n_.
+
+A survey whose responses are only index-based — common when the rating is the first
+question, so the key is bare `$survey_response` — returns all-NULL under the id-based
+key alone, which reads as "no responses." Always coalesce id-based over the
+index-based fallback:
 
 ```sql
 SELECT
     toDate(timestamp) AS day,
-    avg(toFloat64OrNull(JSONExtractString(properties, '$survey_response_<question_id>'))) AS avg_score,
+    avg(toFloat64OrNull(coalesce(
+        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),  -- id-based (modern)
+        nullIf(JSONExtractString(properties, '<index_based_key>'), '')                -- '$survey_response' (index 0) or '$survey_response_<n>'
+    ))) AS avg_score,
     count() AS responses
 FROM events
 WHERE event = 'survey sent'
@@ -242,14 +260,20 @@ for clustering.
 
 ```sql
 SELECT
-    JSONExtractString(properties, '$survey_response_<question_id>') AS response,
+    coalesce(
+        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),  -- id-based (modern)
+        nullIf(JSONExtractString(properties, '<index_based_key>'), '')                -- '$survey_response' (index 0) or '$survey_response_<n>'
+    ) AS response,
     person_id,
     timestamp
 FROM events
 WHERE event = 'survey sent'
   AND JSONExtractString(properties, '$survey_id') = '<survey_id>'
   AND timestamp > now() - INTERVAL 14 DAY
-  AND JSONExtractString(properties, '$survey_response_<question_id>') != ''
+  AND coalesce(
+        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),
+        nullIf(JSONExtractString(properties, '<index_based_key>'), '')
+      ) != ''
   -- dedupe by submission as above
 ORDER BY timestamp DESC
 LIMIT 200
@@ -449,8 +473,10 @@ Direct calls (read-only):
   - `$survey_id` — which survey
   - `$survey_iteration` — which iteration of a recurring survey
   - `$survey_submission_id` — dedupe key (newer events; older events lack this)
-  - `$survey_response` — first question's response (legacy form)
-  - `$survey_response_<question_id>` — modern per-question key (preferred)
+  - `$survey_response` — first question's response, index-based legacy key (index 0)
+  - `$survey_response_<n>` — index-based key for question index _n_ > 0 (numeric suffix)
+  - `$survey_response_<question_id>` — id-based per-question key (question UUID; preferred,
+    but coalesce over the index-based keys above — see "Resolving the response value")
   - `$survey_completed`, `$survey_partially_completed`, `$survey_dismissed` — status
   - `$survey_responded` — whether the user responded at all
 - `read-data-schema event_property_values` — sample response values to confirm
