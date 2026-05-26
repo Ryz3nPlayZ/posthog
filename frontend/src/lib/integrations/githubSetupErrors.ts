@@ -6,7 +6,6 @@ export const GITHUB_SETUP_ERROR_MESSAGES: Record<string, string> = {
     github_oauth_error: 'GitHub rejected the authorization. Please try again.',
     missing_params: "GitHub didn't send back the expected parameters. Please try again.",
     invalid_state: 'The GitHub setup request expired or could not be verified. Please try again.',
-    invalid_team: 'Your project access changed during setup. Please try again.',
     invalid_installation_id: 'GitHub returned an invalid installation. Please try again.',
     exchange_failed: 'GitHub rejected the authorization code. Please try again.',
     installation_verify_failed: 'Could not verify your access to this GitHub installation. Please try again.',

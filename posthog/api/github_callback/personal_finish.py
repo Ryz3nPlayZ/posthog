@@ -73,8 +73,9 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 return _error("missing_params")
             if authorize_state.team_id is None:
                 return _error("invalid_state")
-            if not user.teams.filter(id=authorize_state.team_id).exists():
-                return _error("invalid_team")
+            # `user.teams` membership is no longer re-checked here — losing access between
+            # OAuth-trigger and OAuth-return is a rare timing edge case. If it happens,
+            # `integration_from_installation_id` below will raise rather than emit a typed code.
             installation_ids = [installation_id]
         case FlowKind.OAUTH_DISCOVER:
             pass

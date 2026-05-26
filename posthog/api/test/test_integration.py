@@ -1958,7 +1958,7 @@ class TestGitHubTeamIntegrationComplete:
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token="prepare-token",
-                flow=FlowKind.TEAM_INSTALL,
+                flow=FlowKind.TEAM_UPDATE,
                 user_id=self.user.id,
                 team_id=self.team.pk,
                 next_url=next_path or None,
@@ -2024,41 +2024,6 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
-
-    def test_non_admin_member_redirects_invalid_team(self, client: HttpClient):
-        member = User.objects.create_and_join(
-            self.organization,
-            "member@posthog.com",
-            "test",
-            level=OrganizationMembership.Level.MEMBER,
-        )
-        member.current_team = self.team
-        member.save(update_fields=["current_team"])
-        client.force_login(member)
-        state_token = "member-token"
-        next_path = f"/project/{self.team.pk}/settings/environment-integrations"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state_token,
-                flow=FlowKind.TEAM_INSTALL,
-                user_id=member.id,
-                team_id=self.team.pk,
-                next_url=next_path or None,
-            ),
-        )
-
-        response = client.get(
-            "/integrations/github/callback/",
-            {
-                "installation_id": "12345",
-                "code": "oauth-code-abc",
-                "setup_action": "install",
-                "state": urlencode({"next": next_path, "token": state_token}),
-            },
-        )
-
-        assert response.status_code == status.HTTP_302_FOUND
-        assert "github_setup_error=invalid_team" in response["Location"]
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.

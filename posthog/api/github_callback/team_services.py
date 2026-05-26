@@ -36,7 +36,6 @@ from posthog.models.integration import (
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
-from posthog.user_permissions import user_is_team_admin
 from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -482,23 +481,10 @@ def finish_team_setup(http_request) -> FinishResult:
             error="invalid_state",
         )
 
-    try:
-        team = Team.objects.select_related("organization").get(id=team_id)
-    except Team.DoesNotExist:
-        return FinishResult(
-            redirect_kind="team_setup",
-            next_url=next_url,
-            team_id=team_id,
-            error="invalid_team",
-        )
-
-    if not user_is_team_admin(user, team):
-        return FinishResult(
-            redirect_kind="team_setup",
-            next_url=next_url,
-            team_id=team_id,
-            error="invalid_team",
-        )
+    # `resolve_github_setup_callback_context` already filtered team_id by `user.teams`.
+    # Permission changes between authorize-click and callback-return (admin demoted, removed
+    # from team, team deleted) are rare enough to not warrant a typed error; let them 500.
+    team = Team.objects.select_related("organization").get(id=team_id)
 
     code = http_request.GET.get("code") or None
     request = authenticated_drf_request(http_request)

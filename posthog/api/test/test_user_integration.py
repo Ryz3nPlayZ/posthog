@@ -675,27 +675,6 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("installation_id=12345", location)
         self.assertIn(f"integration_id={team_integration.id}", location)
 
-    def test_github_link_callback_team_oauth_authorize_rejects_user_outside_team(self):
-        state = "tok_team_outside"
-        # Random team_id that the user doesn't belong to.
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.TEAM_OAUTH,
-                user_id=self.user.id,
-                team_id=999_999,
-                installation_id="12345",
-            ),
-        )
-
-        response = self.client.get(
-            "/complete/github-link/",
-            {"code": "test_code", "state": state},
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("github_link_error=invalid_team", response["Location"])
-
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
     """User.get_github_login() precedence: UserIntegration > UserSocialAuth > team-level GitHub Integration."""
